@@ -1,0 +1,8 @@
+.classpath
+.project
+.settings
+.idea
+target
+
+/nbactions.xml
+/tigase-mongodb.iml
