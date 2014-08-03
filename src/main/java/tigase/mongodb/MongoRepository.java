@@ -47,7 +47,7 @@ import tigase.xmpp.BareJID;
  * 
  * @author andrzej
  */
-public class MongoRepository implements UserRepository {
+public class MongoRepository implements AuthRepository, UserRepository {
 
 	private static final String JID_HASH_ALG = "SHA-256";
 	
@@ -60,6 +60,7 @@ public class MongoRepository implements UserRepository {
 	private String resourceUri;
 	private MongoClient mongo;
 	private DB db;
+	private AuthRepository auth;
 
 	private byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
@@ -90,6 +91,8 @@ public class MongoRepository implements UserRepository {
 			nodes.createIndex(new BasicDBObject("uid", 1));
 			nodes.createIndex(new BasicDBObject("node", 1));
 			nodes.createIndex(new BasicDBObject("key", 1));
+			
+			auth = new AuthRepositoryImpl(this);
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
@@ -401,5 +404,45 @@ public class MongoRepository implements UserRepository {
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Error removing subnode from repository: ", ex);
 		}
+	}
+
+	@Override
+	public void addUser(BareJID user, String password) throws UserExistsException, TigaseDBException {
+		auth.addUser(user, password);
+	}
+
+	@Override
+	public boolean digestAuth(BareJID user, String digest, String id, String alg) throws UserNotFoundException, TigaseDBException, AuthorizationException {
+		return auth.digestAuth(user, digest, id, alg);
+	}
+
+	@Override
+	public void logout(BareJID user) throws UserNotFoundException, TigaseDBException {
+		auth.logout(user);
+	}
+
+	@Override
+	public boolean otherAuth(Map<String, Object> authProps) throws UserNotFoundException, TigaseDBException, AuthorizationException {
+		return auth.otherAuth(authProps);
+	}
+
+	@Override
+	public boolean plainAuth(BareJID user, String password) throws UserNotFoundException, TigaseDBException, AuthorizationException {
+		return auth.plainAuth(user, password);
+	}
+
+	@Override
+	public void queryAuth(Map<String, Object> authProps) {
+		auth.queryAuth(authProps);
+	}
+
+	@Override
+	public String getPassword(BareJID user) throws UserNotFoundException, TigaseDBException {
+		return null;
+	}
+
+	@Override
+	public void updatePassword(BareJID user, String password) throws UserNotFoundException, TigaseDBException {
+		auth.updatePassword(user, password);
 	}
 }
