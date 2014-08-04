@@ -39,6 +39,7 @@ public class Activator implements BundleActivator, ServiceListener {
 	private BundleContext context = null;
 	private Class<MongoRepository> mongoRepositoryClass = null;
 	private Class<MongoMsgRepository> mongoMsgRepositoryClass = null;
+	//private Class<?> pubsubDaoClass = null;
 	private ModulesManager serviceManager = null;
 	private ServiceReference serviceReference = null;
 
@@ -46,6 +47,7 @@ public class Activator implements BundleActivator, ServiceListener {
 		if (serviceManager != null) {
 			serviceManager.registerClass(mongoRepositoryClass);
 			serviceManager.registerClass(mongoMsgRepositoryClass);
+			//serviceManager.registerClass(pubsubDaoClass);
 			serviceManager.update();
 		}
 	}
@@ -74,6 +76,7 @@ public class Activator implements BundleActivator, ServiceListener {
 			context = bc;
 			mongoRepositoryClass = MongoRepository.class;
 			mongoMsgRepositoryClass = MongoMsgRepository.class;
+			//pubsubDaoClass = this.getClass().getClassLoader().loadClass("tigase.mongodb.PubSubDAOMongo");
 			bc.addServiceListener(this, "(&(objectClass=" + ModulesManager.class.getName() + "))");
 			serviceReference = bc.getServiceReference(ModulesManager.class.getName());
 			if (serviceReference != null) {
@@ -94,6 +97,7 @@ public class Activator implements BundleActivator, ServiceListener {
 			}
 			mongoRepositoryClass = null;
 			mongoMsgRepositoryClass = null;
+			//pubsubDaoClass = null;
 		}
 	}
 
@@ -101,6 +105,7 @@ public class Activator implements BundleActivator, ServiceListener {
 		if (serviceManager != null) {
 			serviceManager.unregisterClass(mongoRepositoryClass);
 			serviceManager.unregisterClass(mongoMsgRepositoryClass);
+			//serviceManager.unregisterClass(pubsubDaoClass);
 			serviceManager.update();
 		}
 	}	
