@@ -132,7 +132,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			db = mongo.getDB(uri.getDatabase());
 			
 			DBCollection msgHistoryCollection = null;
-			if (db.collectionExists(MSG_HISTORY_COLLECTION)) {
+			if (!db.collectionExists(MSG_HISTORY_COLLECTION)) {
 				msgHistoryCollection = db.createCollection(MSG_HISTORY_COLLECTION, new BasicDBObject());
 			} else {
 				msgHistoryCollection = db.getCollection(MSG_HISTORY_COLLECTION);

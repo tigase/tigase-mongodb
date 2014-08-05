@@ -38,12 +38,14 @@ public class Activator implements BundleActivator, ServiceListener {
 	private static final Logger log = Logger.getLogger(Activator.class.getCanonicalName());
 	private BundleContext context = null;
 	private Class<MongoRepository> mongoRepositoryClass = null;
+	private Class<MongoMsgRepository> mongoMsgRepositoryClass = null;
 	private ModulesManager serviceManager = null;
 	private ServiceReference serviceReference = null;
 
 	private void registerAddons() {
 		if (serviceManager != null) {
 			serviceManager.registerClass(mongoRepositoryClass);
+			serviceManager.registerClass(mongoMsgRepositoryClass);
 			serviceManager.update();
 		}
 	}
@@ -71,6 +73,7 @@ public class Activator implements BundleActivator, ServiceListener {
 		synchronized (this) {
 			context = bc;
 			mongoRepositoryClass = MongoRepository.class;
+			mongoMsgRepositoryClass = MongoMsgRepository.class;
 			bc.addServiceListener(this, "(&(objectClass=" + ModulesManager.class.getName() + "))");
 			serviceReference = bc.getServiceReference(ModulesManager.class.getName());
 			if (serviceReference != null) {
@@ -90,12 +93,14 @@ public class Activator implements BundleActivator, ServiceListener {
 				serviceReference = null;
 			}
 			mongoRepositoryClass = null;
+			mongoMsgRepositoryClass = null;
 		}
 	}
 
 	private void unregisterAddons() {
 		if (serviceManager != null) {
 			serviceManager.unregisterClass(mongoRepositoryClass);
+			serviceManager.unregisterClass(mongoMsgRepositoryClass);
 			serviceManager.update();
 		}
 	}	
