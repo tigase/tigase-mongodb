@@ -31,6 +31,7 @@ import com.mongodb.DuplicateKeyException;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
+import com.mongodb.WriteResult;
 import java.net.UnknownHostException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -92,7 +93,34 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			nodes.createIndex(new BasicDBObject("node", 1));
 			nodes.createIndex(new BasicDBObject("key", 1));
 			
-			auth = new AuthRepositoryImpl(this);
+			// let's override AuthRepositoryImpl to store password inside objects in tig_users 
+			auth = new AuthRepositoryImpl(this) {
+				@Override
+				public String getPassword(BareJID user) throws TigaseDBException {
+					try {
+						byte[] id = generateId(user);
+						DBObject userDto = db.getCollection(USERS_COLLECTION).findOne(new BasicDBObject("_id", id).append(ID_KEY, user.toString()));
+						if (userDto == null) 
+							throw new UserNotFoundException("User " + user + " not found in repository");
+						return (String) userDto.get(PASSWORD_KEY);
+					} catch (MongoException ex) {
+						throw new TigaseDBException("Error retrieving password for user " + user, ex);
+					}
+				}
+				
+				@Override
+				public void updatePassword(BareJID user, String password) throws TigaseDBException {
+					try {
+						byte[] id = generateId(user);
+						WriteResult result = db.getCollection(USERS_COLLECTION).update(
+								new BasicDBObject("_id", id).append(ID_KEY, user.toString()), new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
+						if (result == null || !result.isUpdateOfExisting()) 
+							throw new UserNotFoundException("User " + user + " not found in repository");
+					} catch (MongoException ex) {
+						throw new TigaseDBException("Error retrieving password for user " + user, ex);
+					}
+				}
+			};
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
