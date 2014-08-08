@@ -21,6 +21,9 @@
  */
 package tigase.mongodb;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
@@ -37,17 +40,15 @@ public class Activator implements BundleActivator, ServiceListener {
 
 	private static final Logger log = Logger.getLogger(Activator.class.getCanonicalName());
 	private BundleContext context = null;
-	private Class<MongoRepository> mongoRepositoryClass = null;
-	private Class<MongoMsgRepository> mongoMsgRepositoryClass = null;
-	//private Class<?> pubsubDaoClass = null;
+	private Set<Class<?>> exportedClasses = null;
 	private ModulesManager serviceManager = null;
 	private ServiceReference serviceReference = null;
 
 	private void registerAddons() {
 		if (serviceManager != null) {
-			serviceManager.registerClass(mongoRepositoryClass);
-			serviceManager.registerClass(mongoMsgRepositoryClass);
-			//serviceManager.registerClass(pubsubDaoClass);
+			for (Class<?> exportedClass : exportedClasses) {
+				serviceManager.registerClass(exportedClass);
+			}
 			serviceManager.update();
 		}
 	}
@@ -74,9 +75,11 @@ public class Activator implements BundleActivator, ServiceListener {
 	public void start(BundleContext bc) throws Exception {
 		synchronized (this) {
 			context = bc;
-			mongoRepositoryClass = MongoRepository.class;
-			mongoMsgRepositoryClass = MongoMsgRepository.class;
-			//pubsubDaoClass = this.getClass().getClassLoader().loadClass("tigase.mongodb.PubSubDAOMongo");
+			exportedClasses = new HashSet<Class<?>>();
+			exportedClasses.add(MongoRepository.class);
+			exportedClasses.add(MongoMsgRepository.class);
+			tryExportClass("tigase.mongodb.PubSubDAOMongo");
+
 			bc.addServiceListener(this, "(&(objectClass=" + ModulesManager.class.getName() + "))");
 			serviceReference = bc.getServiceReference(ModulesManager.class.getName());
 			if (serviceReference != null) {
@@ -95,18 +98,32 @@ public class Activator implements BundleActivator, ServiceListener {
 				serviceManager = null;
 				serviceReference = null;
 			}
-			mongoRepositoryClass = null;
-			mongoMsgRepositoryClass = null;
-			//pubsubDaoClass = null;
+			exportedClasses = null;
 		}
 	}
 
 	private void unregisterAddons() {
 		if (serviceManager != null) {
-			serviceManager.unregisterClass(mongoRepositoryClass);
-			serviceManager.unregisterClass(mongoMsgRepositoryClass);
-			//serviceManager.unregisterClass(pubsubDaoClass);
+			for (Class<?> exportedClass : exportedClasses) {
+				try { 
+					serviceManager.unregisterClass(exportedClass);
+				} catch (Exception ex) {
+					log.log(Level.WARNING, "exception unregistering removing exported class " + exportedClass.getCanonicalName(), ex);
+				}
+			}
 			serviceManager.update();
 		}
 	}	
+	
+	private void tryExportClass(String className) {
+		try {
+			Class<?> cls = this.getClass().getClassLoader().loadClass(className);
+			if (cls != null) {
+				exportedClasses.add(cls);
+			}
+		}
+		catch (Exception ex) {
+			log.log(Level.WARNING, "exception trying to export class " + className, ex);
+		}
+	}
 }
