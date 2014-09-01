@@ -124,7 +124,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	}
 
 	@Override
-	public void initRepository(String resource_uri, Map<String, String> map) throws TigaseDBException {
+	public void initRepository(String resource_uri, Map<String, String> map) throws DBInitException {
 		try {
 			resourceUri = resource_uri;
 			MongoClientURI uri = new MongoClientURI(resource_uri);
