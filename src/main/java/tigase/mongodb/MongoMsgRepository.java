@@ -48,6 +48,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.bson.types.ObjectId;
 import tigase.db.DBInitException;
+import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.db.UserNotFoundException;
 import tigase.server.Packet;
@@ -64,6 +65,7 @@ import tigase.xmpp.JID;
  *
  * @author andrzej
  */
+@Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class MongoMsgRepository extends MsgRepository<ObjectId> {
 
 	private static final Logger log = Logger.getLogger(MongoMsgRepository.class.getCanonicalName());

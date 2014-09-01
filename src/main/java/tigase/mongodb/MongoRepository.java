@@ -48,6 +48,7 @@ import tigase.xmpp.BareJID;
  * 
  * @author andrzej
  */
+@Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class MongoRepository implements AuthRepository, UserRepository {
 
 	private static final String JID_HASH_ALG = "SHA-256";
