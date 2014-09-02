@@ -19,7 +19,7 @@
  * If not, see http://www.gnu.org/licenses/.
  *
  */
-package tigase.mongodb;
+package tigase.mongodb.pubsub;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
