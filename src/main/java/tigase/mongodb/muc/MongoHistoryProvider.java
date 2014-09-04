@@ -106,6 +106,14 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 	@Override
 	public void addSubjectChange(Room room, Element message, String subject, JID senderJid, String senderNickname, Date time) {
 	}
+	
+	@Override
+	public void destroy() {
+		if (mongo != null) {
+			// if we have instance of MongoClient then close it and release resources
+			mongo.close();
+		}
+	}
 
 	@Override
 	public void getHistoryMessages(Room room, JID senderJID, Integer maxchars, Integer maxstanzas, Integer seconds, Date since, PacketWriter writer) {

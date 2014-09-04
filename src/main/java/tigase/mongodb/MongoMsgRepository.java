@@ -130,18 +130,24 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 		try {
 			resourceUri = resource_uri;
 			MongoClientURI uri = new MongoClientURI(resource_uri);
-			mongo = new MongoClient(uri);
-			db = mongo.getDB(uri.getDatabase());
-			
-			DBCollection msgHistoryCollection = null;
-			if (!db.collectionExists(MSG_HISTORY_COLLECTION)) {
-				msgHistoryCollection = db.createCollection(MSG_HISTORY_COLLECTION, new BasicDBObject());
-			} else {
-				msgHistoryCollection = db.getCollection(MSG_HISTORY_COLLECTION);
-			}
 
-			msgHistoryCollection.createIndex(new BasicDBObject("ts", 1));
-			msgHistoryCollection.createIndex(new BasicDBObject("to_hash", 1));
+			// as instances of this MsgRepositoryIfc implemetations are cached
+			// this instance may be reinitialized but then there is no point 
+			// in recreation MongoClient instance
+			if (mongo == null) {
+				mongo = new MongoClient(uri);
+				db = mongo.getDB(uri.getDatabase());
+
+				DBCollection msgHistoryCollection = null;
+				if (!db.collectionExists(MSG_HISTORY_COLLECTION)) {
+					msgHistoryCollection = db.createCollection(MSG_HISTORY_COLLECTION, new BasicDBObject());
+				} else {
+					msgHistoryCollection = db.getCollection(MSG_HISTORY_COLLECTION);
+				}
+
+				msgHistoryCollection.createIndex(new BasicDBObject("ts", 1));
+				msgHistoryCollection.createIndex(new BasicDBObject("to_hash", 1));
+			}
 			
 			if (map != null) {
 				String msgs_store_limit_str = map.get(MSGS_STORE_LIMIT_KEY);
