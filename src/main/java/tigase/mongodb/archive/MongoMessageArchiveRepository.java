@@ -345,4 +345,13 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 		}
 	}
 	
+	@Override
+	public void destroy() {
+		if (mongo != null) {
+			// if there is instance of MongoClient then we should close it on destroy
+			// to release resources
+			mongo.close();
+		}
+	}
+	
 }
