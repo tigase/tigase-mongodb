@@ -133,7 +133,7 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 			
 			BasicDBObject crit = new BasicDBObject("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
 			if (since != null) {
-				crit.append("since", new BasicDBObject("$gte", since));
+				crit.append("timestamp", new BasicDBObject("$gte", since));
 				BasicDBObject order = new BasicDBObject("timestamp", 1);
 				cursor = db.getCollection(HISTORY_COLLECTION).find(crit).limit(limit).sort(order);
 				while (cursor.hasNext()) {
