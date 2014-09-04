@@ -80,6 +80,7 @@ public class Activator implements BundleActivator, ServiceListener {
 			exportedClasses.add(MongoMsgRepository.class);
 			tryExportClass("tigase.mongodb.pubsub.PubSubDAOMongo");
 			tryExportClass("tigase.mongodb.muc.MongoHistoryProvider");
+			tryExportClass("tigase.mongodb.archive.MongoMessageArchiveRepository");
 
 			bc.addServiceListener(this, "(&(objectClass=" + ModulesManager.class.getName() + "))");
 			serviceReference = bc.getServiceReference(ModulesManager.class.getName());
