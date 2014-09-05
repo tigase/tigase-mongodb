@@ -151,4 +151,17 @@ public class MongoMessageArchiveRepositoryTest {
 		Assert.assertEquals("Incorrect direction", MessageArchiveRepository.Direction.incoming.toElementName(), res.getName());
 		Assert.assertEquals("Incorrect message body", "Test 2", res.getChildCData(res.getName()+"/body"));
 	}
+	
+	@Test
+	public void test5_removeItems() throws TigaseDBException {
+		Element rsmEl = new Element("rsm");
+		Element indexEl = new Element("index", "0");
+		rsmEl.addChild(indexEl);
+		RSM rsm = new RSM(rsmEl);
+		List<Element> msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, null, rsm);
+		Assert.assertNotEquals("No messages in repository to execute test - we should have some already", 0, msgs.size());
+		repo.removeItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, new Date());
+		msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, null, rsm);
+		Assert.assertEquals("Still some messages, while in this duration all should be deleted", 0, msgs.size());
+	}
 }
