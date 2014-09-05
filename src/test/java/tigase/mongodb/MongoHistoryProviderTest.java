@@ -123,4 +123,33 @@ public class MongoHistoryProviderTest {
 		Assert.assertEquals("Not retrieved correct number of messages", 1, count.get());
 	}	
 	
+	@Test
+	public void testProviderRemoval() {
+		provider.addMessage(room, null, "Test message 3", test1, "Test 3", new Date());
+		provider.removeHistory(room);
+		final AtomicInteger count = new AtomicInteger(0);
+		provider.getHistoryMessages(room, test1, null, 1, null, null, new PacketWriter() {
+
+			@Override
+			public void write(Collection<Packet> packets) {
+				for (Packet p : packets) {
+					write(p);
+				}
+			}
+
+			@Override
+			public void write(Packet packet) {
+				Assert.assertEquals("Retrieved incorrect messsage", "Test message 2", packet.getElement().getChildCDataStaticStr(new String[] { "message", "body" }));
+				count.incrementAndGet();
+			}
+
+			@Override
+			public void write(Packet packet, AsyncCallback callback) {
+				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+			}
+			
+		});
+		Assert.assertEquals("Not retrieved correct number of messages", 0, count.get());
+	}
+	
 }
