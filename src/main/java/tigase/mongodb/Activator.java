@@ -30,6 +30,8 @@ import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceEvent;
 import org.osgi.framework.ServiceListener;
 import org.osgi.framework.ServiceReference;
+import tigase.cluster.repo.ClConConfigRepository;
+import tigase.mongodb.cluster.ClConMongoRepository;
 import tigase.osgi.ModulesManager;
 
 /**
@@ -78,6 +80,7 @@ public class Activator implements BundleActivator, ServiceListener {
 			exportedClasses = new HashSet<Class<?>>();
 			exportedClasses.add(MongoRepository.class);
 			exportedClasses.add(MongoMsgRepository.class);
+			exportedClasses.add(ClConMongoRepository.class);
 			tryExportClass("tigase.mongodb.pubsub.PubSubDAOMongo");
 			tryExportClass("tigase.mongodb.muc.MongoHistoryProvider");
 			tryExportClass("tigase.mongodb.archive.MongoMessageArchiveRepository");
