@@ -21,6 +21,7 @@
  */
 package tigase.mongodb;
 
+import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
 import com.mongodb.DBCollection;
@@ -38,9 +39,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
@@ -71,6 +74,8 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	private static final Logger log = Logger.getLogger(MongoMsgRepository.class.getCanonicalName());
 	private static final String JID_HASH_ALG = "SHA-256";
 	private static final String MSG_HISTORY_COLLECTION = "msg_history";
+	private static final String MSG_BROADCAST_COLLECTION = "msg_broadcast";
+	private static final String MSG_BROADCAST_RECP_COLLECTION = "msg_broadcast_recp";
 
 	private static final Comparator<DBObject> MSG_COMPARATOR = new Comparator<DBObject>() {
 		@Override
@@ -147,6 +152,19 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 
 				msgHistoryCollection.createIndex(new BasicDBObject("ts", 1));
 				msgHistoryCollection.createIndex(new BasicDBObject("to_hash", 1));
+				
+				DBCollection  broadcastMsgCollection = !db.collectionExists(MSG_BROADCAST_COLLECTION)
+						? db.createCollection(MSG_BROADCAST_COLLECTION, new BasicDBObject())
+						: db.getCollection(MSG_BROADCAST_COLLECTION);
+				
+				broadcastMsgCollection.createIndex(new BasicDBObject("id", 1).append("expire", 1));
+				
+				DBCollection  broadcastMsgRecpCollection = !db.collectionExists(MSG_BROADCAST_RECP_COLLECTION)
+						? db.createCollection(MSG_BROADCAST_RECP_COLLECTION, new BasicDBObject())
+						: db.getCollection(MSG_BROADCAST_RECP_COLLECTION);
+				
+				broadcastMsgRecpCollection.createIndex(new BasicDBObject("msg_id", 1));
+				broadcastMsgRecpCollection.createIndex(new BasicDBObject("msg_id", 1).append("recipient_id", 1), new BasicDBObject("unique", true));
 			}
 			
 			if (map != null) {
@@ -351,5 +369,64 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
 	}	
+
+	@Override
+	public void loadMessagesToBroadcast() {
+		DBCursor cursor = null;
+		try {
+			Set<String> oldMessages = new HashSet<String>(broadcastMessages.keySet());
+			cursor = db.getCollection(MSG_BROADCAST_COLLECTION).find(new BasicDBObject("expire", new BasicDBObject("$gt", new Date())));
+			DomBuilderHandler domHandler = new DomBuilderHandler();
+			while (cursor.hasNext()) {
+				DBObject dto = cursor.next();
+				String id = (String) dto.get("_id");
+				oldMessages.remove(id);
+				if (broadcastMessages.containsKey(id))
+					continue;
+				
+				Date expire = (Date) dto.get("expire");
+				char[] msgChars = ((String) dto.get("msg")).toCharArray();
+					
+				parser.parse(domHandler, msgChars, 0, msgChars.length);
+					
+				Queue<Element> elems = domHandler.getParsedElements();
+				Element msg = elems.poll();
+				if (msg == null)
+					continue;
+					
+				broadcastMessages.put(id, new BroadcastMsg(null, msg, expire));
+			}
+			for (String key : oldMessages) {
+				broadcastMessages.remove(key);
+			}
+		} catch (MongoException ex) {
+			if (cursor != null) {
+				cursor.close();
+			}
+			log.log(Level.WARNING, "Problem loading messages for broadcast from db: ", ex);
+		}	
+	}
+	
+
+	@Override
+	protected void ensureBroadcastMessageRecipient(String id, BareJID recipient) {
+		try {
+			byte[] recipientId = generateId(recipient);
+			BasicDBObject crit = new BasicDBObject("msg_id", id).append("recipient_id", recipientId).append("recipient", recipient.toString());
+			db.getCollection(MSG_BROADCAST_RECP_COLLECTION).update(crit, crit, true, false);
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem inserting messages recipients for broadcast to db: ", ex);
+		}		
+	}
+
+	@Override
+	protected void insertBroadcastMessage(String id, Element msg, Date expire, BareJID recipient) {
+		try {
+			db.getCollection(MSG_BROADCAST_COLLECTION).update(new BasicDBObject("id", id), 
+					new BasicDBObject("$setOnInsert", new BasicDBObject("expire", expire).append("msg", msg.toString())), true, false);
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, "Problem inserting messages for broadcast to db: ", ex);
+		}
+	}
 	
 }
