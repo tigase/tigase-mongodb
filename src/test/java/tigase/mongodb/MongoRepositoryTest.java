@@ -105,7 +105,7 @@ public class MongoRepositoryTest {
 		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
 		repo.removeData(jid, "test/node2", "list");
 		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { }, subnodes);
+		Assert.assertEquals(null, subnodes);
 		
 		repo.removeUser(jid);
 		Assert.assertFalse("User removal failed", repo.userExists(jid));

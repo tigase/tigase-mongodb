@@ -429,7 +429,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 				if (!res.contains(node))
 					res.add(node);
 			}
-			return res.toArray(new String[res.size()]);
+			return res.isEmpty() ? null : res.toArray(new String[res.size()]);
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Error removing subnode from repository: ", ex);
 		}
