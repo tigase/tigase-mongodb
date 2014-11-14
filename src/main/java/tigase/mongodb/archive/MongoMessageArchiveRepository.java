@@ -60,15 +60,19 @@ import tigase.xmpp.BareJID;
 public class MongoMessageArchiveRepository extends AbstractMessageArchiveRepository {
 
 	private static final Logger log = Logger.getLogger(MongoMessageArchiveRepository.class.getCanonicalName());
-	
+		
 	private static final String HASH_ALG = "SHA-256";
+	private static final String[] MSG_BODY_PATH = { "message", "body" };	
 	private static final String MSGS_COLLECTION = "tig_ma_msgs";
+	private static final String STORE_PLAINTEXT_BODY_KEY = "store-plaintext-body";
 	
 	private static final SimpleParser parser      = SingletonFactory.getParserInstance();
 	
 	private String resourceUri;
 	private MongoClient mongo;
 	private DB db;	
+	
+	private boolean storePlaintextBody = true;
 	
 	private byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
@@ -103,6 +107,13 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					.append("date", date)
 					.append("direction", direction.name()).append("ts", timestamp)
 					.append("type", type).append("msg", msg.toString());
+			
+			if (storePlaintextBody) {
+				String body = msg.getChildCData(MSG_BODY_PATH);
+				if (body != null) {
+					dto.append("body", body);
+				}
+			}
 			
 			db.getCollection(MSGS_COLLECTION).insert(dto);
 		} catch (Exception ex) {
@@ -329,6 +340,12 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	@Override
 	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
 		try {
+			if (params.containsKey(STORE_PLAINTEXT_BODY_KEY)) {
+				storePlaintextBody = Boolean.parseBoolean(params.get(STORE_PLAINTEXT_BODY_KEY));
+			} else {
+				storePlaintextBody = true;
+			}			
+			
 			resourceUri = resource_uri;
 			MongoClientURI uri = new MongoClientURI(resource_uri);
 			mongo = new MongoClient(uri);
