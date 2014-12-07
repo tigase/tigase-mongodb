@@ -32,8 +32,9 @@ import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Ignore;
-import tigase.archive.RSM;
+import tigase.archive.AbstractCriteria;
 import tigase.archive.db.MessageArchiveRepository;
 import tigase.db.DBInitException;
 import tigase.db.TigaseDBException;
@@ -57,6 +58,7 @@ public class MongoMessageArchiveRepositoryTest {
 		formatter2.setTimeZone(TimeZone.getTimeZone("UTC"));
 	}	
 	
+	private String uri = System.getProperty("testDbUri");
 	private MessageArchiveRepository repo;
 	// this is static to pass date from first test to next one
 	private static Date testStart = null;
@@ -66,8 +68,10 @@ public class MongoMessageArchiveRepositoryTest {
 	
 	@Before
 	public void setup() throws DBInitException {
+		Assume.assumeNotNull(uri);
+		
 		repo = new MongoMessageArchiveRepository();
-		repo.initRepository("mongodb://localhost/tigase_junit", new HashMap<String,String>());
+		repo.initRepository(uri, new HashMap<String,String>());
 	}
 	
 	@After
@@ -84,12 +88,12 @@ public class MongoMessageArchiveRepositoryTest {
 		Element msg = new Element("message", new String[] { "from", "to", "type"}, new String[] { owner.toString(), buddy.toString(), StanzaType.chat.name()});
 		msg.addChild(new Element("body", body));
 		repo.archiveMessage(owner.getBareJID(), buddy.getBareJID(), MessageArchiveRepository.Direction.outgoing, date, msg);
-		
-		Element rsmEl = new Element("rsm");
-		Element indexEl = new Element("index", "0");
-		rsmEl.addChild(indexEl);
-		RSM rsm = new RSM(rsmEl);
-		List<Element> msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), date, null, rsm);
+	
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(date);
+		crit.setSize(1);
+		List<Element> msgs = repo.getItems(owner.getBareJID(), crit);
 		Assert.assertEquals("Incorrect number of message", 1, msgs.size());
 		
 		Element res = msgs.get(0);
@@ -106,11 +110,11 @@ public class MongoMessageArchiveRepositoryTest {
 		msg.addChild(new Element("body", body));
 		repo.archiveMessage(owner.getBareJID(), buddy.getBareJID(), MessageArchiveRepository.Direction.incoming, date, msg);
 		
-		Element rsmEl = new Element("rsm");
-		Element indexEl = new Element("index", "0");
-		rsmEl.addChild(indexEl);
-		RSM rsm = new RSM(rsmEl);
-		List<Element> msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), date, null, rsm);
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(date);
+		crit.setSize(1);
+		List<Element> msgs = repo.getItems(owner.getBareJID(), crit);
 		Assert.assertEquals("Incorrect number of message", 1, msgs.size());
 		
 		Element res = msgs.get(0);
@@ -120,13 +124,12 @@ public class MongoMessageArchiveRepositoryTest {
 	
 	@Test
 	public void test3_getCollections() throws TigaseDBException {
-		Element rsmEl = new Element("rsm");
-		Element indexEl = new Element("index", "0");
-		rsmEl.addChild(indexEl);
-		RSM rsm = new RSM(rsmEl);
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(testStart);
 		
 		System.out.println("owner: " + owner + " buddy: " + buddy + " date: " + testStart);
-		List<Element> chats = repo.getCollections(owner.getBareJID(), buddy.getBareJID().toString(), testStart, null, rsm);
+		List<Element> chats = repo.getCollections(owner.getBareJID(), crit);
 		Assert.assertEquals("Incorrect number of collections", 1, chats.size());
 		
 		Element chat = chats.get(0);
@@ -136,11 +139,11 @@ public class MongoMessageArchiveRepositoryTest {
 			
 	@Test
 	public void test4_getItems() throws InterruptedException, TigaseDBException {
-		Element rsmEl = new Element("rsm");
-		Element indexEl = new Element("index", "0");
-		rsmEl.addChild(indexEl);
-		RSM rsm = new RSM(rsmEl);
-		List<Element> msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, null, rsm);
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(testStart);
+		
+		List<Element> msgs = repo.getItems(owner.getBareJID(), crit);
 		Assert.assertEquals("Incorrect number of message", 2, msgs.size());
 		
 		Element res = msgs.get(0);
@@ -152,16 +155,59 @@ public class MongoMessageArchiveRepositoryTest {
 		Assert.assertEquals("Incorrect message body", "Test 2", res.getChildCData(res.getName()+"/body"));
 	}
 	
+	//tests as MongoDB uses full text search which may return results which we cannot predict
 	@Test
-	public void test5_removeItems() throws TigaseDBException {
-		Element rsmEl = new Element("rsm");
-		Element indexEl = new Element("index", "0");
-		rsmEl.addChild(indexEl);
-		RSM rsm = new RSM(rsmEl);
-		List<Element> msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, null, rsm);
+	public void test5_getCollectionsContains() throws TigaseDBException {
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(testStart);
+		crit.addContains("Test 1");
+		
+		System.out.println("owner: " + owner + " buddy: " + buddy + " date: " + testStart);
+		List<Element> chats = repo.getCollections(owner.getBareJID(), crit);
+		Assert.assertNotEquals("Incorrect number of collections", 0, chats.size());
+		
+		Element chat = chats.get(0);
+		Assert.assertEquals("Incorrect buddy", buddy.getBareJID().toString(), chat.getAttribute("with"));
+		Assert.assertEquals("Incorrect timestamp", formatter2.format(testStart), chat.getAttribute("start"));		
+		
+		crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(testStart);
+		crit.addContains("Test 123");
+		
+		System.out.println("owner: " + owner + " buddy: " + buddy + " date: " + testStart);
+		chats = repo.getCollections(owner.getBareJID(), crit);
+		Assert.assertNotEquals("Incorrect number of collections", 0, chats.size());		
+	}
+	
+	//tests as MongoDB uses full text search which may return results which we cannot predict
+	@Test
+	public void test6_getItems() throws InterruptedException, TigaseDBException {
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(testStart);
+		crit.addContains("Test 1");
+		
+		List<Element> msgs = repo.getItems(owner.getBareJID(), crit);
+		Assert.assertNotEquals("Incorrect number of message", 0, msgs.size());
+		
+		Element res = msgs.get(0);
+		Assert.assertEquals("Incorrect direction", MessageArchiveRepository.Direction.outgoing.toElementName(), res.getName());
+		Assert.assertEquals("Incorrect message body", "Test 1", res.getChildCData(res.getName()+"/body"));
+	}	
+		
+	
+	@Test
+	public void test7_removeItems() throws TigaseDBException {
+		AbstractCriteria crit = repo.newCriteriaInstance();
+		crit.setWith(buddy.getBareJID().toString());
+		crit.setStart(testStart);
+		
+		List<Element> msgs = repo.getItems(owner.getBareJID(), crit);
 		Assert.assertNotEquals("No messages in repository to execute test - we should have some already", 0, msgs.size());
 		repo.removeItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, new Date());
-		msgs = repo.getItems(owner.getBareJID(), buddy.getBareJID().toString(), testStart, null, rsm);
+		msgs = repo.getItems(owner.getBareJID(), crit);
 		Assert.assertEquals("Still some messages, while in this duration all should be deleted", 0, msgs.size());
 	}
 }

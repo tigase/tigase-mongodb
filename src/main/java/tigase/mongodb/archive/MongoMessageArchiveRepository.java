@@ -41,11 +41,13 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import tigase.archive.AbstractCriteria;
 import tigase.archive.RSM;
 import tigase.archive.db.AbstractMessageArchiveRepository;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.mongodb.archive.MongoMessageArchiveRepository.Criteria;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
 import tigase.xml.SimpleParser;
@@ -57,7 +59,7 @@ import tigase.xmpp.BareJID;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class MongoMessageArchiveRepository extends AbstractMessageArchiveRepository {
+public class MongoMessageArchiveRepository extends AbstractMessageArchiveRepository<Criteria> {
 
 	private static final Logger log = Logger.getLogger(MongoMessageArchiveRepository.class.getCanonicalName());
 		
@@ -74,7 +76,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	
 	private boolean storePlaintextBody = true;
 	
-	private byte[] generateId(BareJID user) throws TigaseDBException {
+	private static byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
 			return md.digest(user.toString().getBytes());
@@ -83,7 +85,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 		}
 	}		
 
-	private byte[] generateId(String user) throws TigaseDBException {
+	private static byte[] generateId(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
 			return md.digest(user.getBytes());
@@ -122,30 +124,34 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 
 	@Override
-	public List<Element> getCollections(BareJID owner, String withJid, Date start, Date end, RSM rsm) throws TigaseDBException {
+	public List<Element> getCollections(BareJID owner, Criteria criteria) throws TigaseDBException {
 		Cursor cursor = null;
 		try {
+			criteria.setOwner(owner);
+			
+			BasicDBObject crit = criteria.getCriteriaDBObject();
 			List<Element> results = new ArrayList<Element>();
-			byte[] oid = generateId(owner);
-			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("owner", owner.toString());
-			
-			if (withJid != null) {
-				byte[] wid = generateId(withJid);
-				crit.append("buddy_id", wid).append("buddy", withJid);
-			}
-			
-			BasicDBObject dateCrit = null;
-			if (start != null) {
-				if (dateCrit == null) dateCrit = new BasicDBObject();
-				dateCrit.append("$gte", start);
-			}
-			if (end != null) {
-				if (dateCrit == null) dateCrit = new BasicDBObject();
-				dateCrit.append("$lte", end);
-			}
-			if (dateCrit != null) {
-				crit.append("ts", dateCrit);
-			}
+//			byte[] oid = generateId(owner);
+//			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("owner", owner.toString());
+//			
+//			if (criteria.getWith() != null) {
+//				String withJid = criteria.getWith();
+//				byte[] wid = generateId(withJid);
+//				crit.append("buddy_id", wid).append("buddy", withJid);
+//			}
+//			
+//			BasicDBObject dateCrit = null;
+//			if (criteria.getStart() != null) {
+//				if (dateCrit == null) dateCrit = new BasicDBObject();
+//				dateCrit.append("$gte", criteria.getStart());
+//			}
+//			if (criteria.getEnd() != null) {
+//				if (dateCrit == null) dateCrit = new BasicDBObject();
+//				dateCrit.append("$lte", criteria.getEnd());
+//			}
+//			if (dateCrit != null) {
+//				crit.append("ts", dateCrit);
+//			}
 			
 			List<DBObject> pipeline = new ArrayList<DBObject>();
 			DBObject matchCrit = new BasicDBObject("$match", crit);
@@ -167,8 +173,8 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			}
 			cursor.close();
 			cursor = null;
-
-			int index = rsm.getIndex() == null ? 0 : rsm.getIndex();
+			criteria.setSize(count);
+			
 			if (count > 0) {
 				pipeline.clear();
 
@@ -176,34 +182,13 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 				pipeline.add(groupCrit);
 				DBObject sort = new BasicDBObject("$sort", new BasicDBObject("ts", 1).append("buddy", 1));
 				pipeline.add(sort);
-				
-				int limit = rsm.getMax();
-				if (rsm.getAfter() != null) {
-					int after = Integer.parseInt(rsm.getAfter());
-					// it is ok, if we go out of range we will return empty result
-					index = after + 1;
-				} else if (rsm.getBefore() != null) {
-					int before = Integer.parseInt(rsm.getBefore());
-					index = before - rsm.getMax();
-					// if we go out of range we need to set index to 0 and reduce limit
-					// to return proper results
-					if (index < 0) {
-						index = 0;
-						limit = before;
-					}
-				} else if (rsm.hasBefore()) {
-					index = count - rsm.getMax();
-					if (index < 0) {
-						index = 0;
-					}
-				}
 
-				if (index > 0) {
-					DBObject skipCrit = new BasicDBObject("$skip", index);
+				if (criteria.getOffset() > 0) {
+					DBObject skipCrit = new BasicDBObject("$skip", criteria.getOffset());
 					pipeline.add(skipCrit);
 				}
 				
-				DBObject limitCrit = new BasicDBObject("$limit", limit);
+				DBObject limitCrit = new BasicDBObject("$limit", criteria.getLimit());
 				pipeline.add(limitCrit);
 
 				cursor = db.getCollection(MSGS_COLLECTION).aggregate(pipeline, 
@@ -217,10 +202,11 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 				}
 			}
 			
-			rsm.setResults(count, index);
+			RSM rsm = criteria.getRSM();
+			rsm.setResults(count, criteria.getOffset());
 			if (!results.isEmpty()) {
-				rsm.setFirst(String.valueOf(index));
-				rsm.setLast(String.valueOf(index + (results.size() - 1)));
+				rsm.setFirst(String.valueOf(criteria.getOffset()));
+				rsm.setLast(String.valueOf(criteria.getOffset() + (results.size() - 1)));
 			}			
 			
 			return results;
@@ -234,52 +220,57 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 
 	@Override
-	public List<Element> getItems(BareJID owner, String withJid, Date start, Date end, RSM rsm) throws TigaseDBException {
+	public List<Element> getItems(BareJID owner, Criteria criteria) throws TigaseDBException {
 		DBCursor cursor = null;
 		try {
+			criteria.setOwner(owner);
+			
+			BasicDBObject crit = criteria.getCriteriaDBObject();
 			List<Element> results = new ArrayList<Element>();
-			byte[] oid = generateId(owner);
-			byte[] wid = generateId(withJid);
-			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("owner", owner.toString())
-					.append("buddy_id", wid).append("buddy", withJid);
-			
-			BasicDBObject dateCrit = new BasicDBObject("$gte", start);
-			if (end != null) {
-				dateCrit.append("$lte", end);
-			}
-			crit.append("ts", dateCrit);
-			
+//			byte[] oid = generateId(owner);
+//			byte[] wid = generateId(withJid);
+//			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("owner", owner.toString())
+//					.append("buddy_id", wid).append("buddy", withJid);
+//			
+//			BasicDBObject dateCrit = new BasicDBObject("$gte", start);
+//			if (end != null) {
+//				dateCrit.append("$lte", end);
+//			}
+//			crit.append("ts", dateCrit);
+//			
 			cursor = db.getCollection(MSGS_COLLECTION).find(crit);
 			int count = cursor.count();
+			criteria.setSize(count);
+//			
+//			int index = rsm.getIndex() == null ? 0 : rsm.getIndex();
+//			int limit = rsm.getMax();
+//			if (rsm.getAfter() != null) {
+//				int after = Integer.parseInt(rsm.getAfter());
+//				// it is ok, if we go out of range we will return empty result
+//				index = after + 1;
+//			} else if (rsm.getBefore() != null) {
+//				int before = Integer.parseInt(rsm.getBefore());
+//				index = before - rsm.getMax();
+//					// if we go out of range we need to set index to 0 and reduce limit
+//				// to return proper results
+//				if (index < 0) {
+//					index = 0;
+//					limit = before;
+//				}
+//			} else if (rsm.hasBefore()) {
+//				index = count - rsm.getMax();
+//				if (index < 0) {
+//					index = 0;
+//				}
+//			}			
 			
-			int index = rsm.getIndex() == null ? 0 : rsm.getIndex();
-			int limit = rsm.getMax();
-			if (rsm.getAfter() != null) {
-				int after = Integer.parseInt(rsm.getAfter());
-				// it is ok, if we go out of range we will return empty result
-				index = after + 1;
-			} else if (rsm.getBefore() != null) {
-				int before = Integer.parseInt(rsm.getBefore());
-				index = before - rsm.getMax();
-					// if we go out of range we need to set index to 0 and reduce limit
-				// to return proper results
-				if (index < 0) {
-					index = 0;
-					limit = before;
-				}
-			} else if (rsm.hasBefore()) {
-				index = count - rsm.getMax();
-				if (index < 0) {
-					index = 0;
-				}
-			}			
-			
-			if (index > 0) {
-				cursor.skip(index);
+			if (criteria.getOffset() > 0) {
+				cursor.skip(criteria.getOffset());
 			}
-			cursor.limit(limit).sort(new BasicDBObject("ts", 1));
+			cursor.limit(criteria.getLimit()).sort(new BasicDBObject("ts", 1));
 			
 			if (cursor.hasNext()) {
+				Date startTimestamp = criteria.getStart();
 				DomBuilderHandler domHandler = new DomBuilderHandler();
 				while (cursor.hasNext()) {
 					DBObject dto = cursor.next();
@@ -288,20 +279,25 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					Date ts = (Date) dto.get("ts");
 					Direction direction = Direction.valueOf((String) dto.get("direction"));
 
+					if (startTimestamp == null)
+						startTimestamp = ts;
+					String with = (crit.containsField("buddy")) ? null : (String) dto.get("buddy");
+					
 					parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
 
 					Queue<Element> queue = domHandler.getParsedElements();
 					Element msg = null;
 					while ((msg = queue.poll()) != null) {
-						addMessageToResults(results, start, msg, ts, direction);
+						addMessageToResults(results, startTimestamp, msg, ts, direction, with);
 					}
 				}
 			}
 			
-			rsm.setResults(count, index);
+			RSM rsm = criteria.getRSM();
+			rsm.setResults(count, criteria.getOffset());
 			if (!results.isEmpty()) {
-				rsm.setFirst(String.valueOf(index));
-				rsm.setLast(String.valueOf(index + (results.size() - 1)));
+				rsm.setFirst(String.valueOf(criteria.getOffset()));
+				rsm.setLast(String.valueOf(criteria.getOffset() + (results.size() - 1)));
 			}			
 			
 			return results;
@@ -357,6 +353,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("date", 1));
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1));
+			msgs.createIndex(new BasicDBObject("body", "text"));
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
@@ -369,6 +366,62 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			// to release resources
 			mongo.close();
 		}
+	}
+	
+	@Override
+	public AbstractCriteria newCriteriaInstance() {
+		return new Criteria();
+	}
+	
+	public static class Criteria extends AbstractCriteria<Date> {
+
+		private BareJID owner;
+		
+		protected void setOwner(BareJID owner) {
+			this.owner = owner;
+		}
+		
+		@Override
+		protected Date convertTimestamp(Date date) {
+			return date;
+		}
+		
+		protected BasicDBObject getCriteriaDBObject() throws TigaseDBException {
+			byte[] oid = generateId(owner);
+			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("owner", owner.toString());
+			
+			if (getWith() != null) {
+				String withJid = getWith();
+				byte[] wid = generateId(withJid);
+				crit.append("buddy_id", wid).append("buddy", withJid);
+			}
+			
+			BasicDBObject dateCrit = null;
+			if (getStart() != null) {
+				if (dateCrit == null) dateCrit = new BasicDBObject();
+				dateCrit.append("$gte", getStart());
+			}
+			if (getEnd() != null) {
+				if (dateCrit == null) dateCrit = new BasicDBObject();
+				dateCrit.append("$lte", getEnd());
+			}
+			if (dateCrit != null) {
+				crit.append("ts", dateCrit);
+			}
+			
+			if (!getContains().isEmpty()) {
+				StringBuilder containsSb = new StringBuilder();
+				for (String contains : getContains()) {
+					if (containsSb.length() > 0)
+						containsSb.append(" ");
+					containsSb.append(contains);
+				}
+				crit.append("$text", new BasicDBObject("$search", containsSb.toString()));
+			}
+			
+			return crit;
+		}
+		
 	}
 	
 }
