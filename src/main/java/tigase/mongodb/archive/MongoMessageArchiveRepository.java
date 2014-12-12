@@ -39,6 +39,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import tigase.archive.AbstractCriteria;
@@ -95,7 +96,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}	
 	
 	@Override
-	public void archiveMessage(BareJID owner, BareJID buddy, Direction direction, Date timestamp, Element msg) {
+	public void archiveMessage(BareJID owner, BareJID buddy, Direction direction, Date timestamp, Element msg, Set<String> tags) {
 		try {
 			byte[] oid = generateId(owner);
 			byte[] bid = generateId(buddy);
@@ -115,6 +116,10 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 				if (body != null) {
 					dto.append("body", body);
 				}
+			}
+			
+			if (tags != null && !tags.isEmpty()) {
+				dto.append("tags", new ArrayList<String>(tags));
 			}
 			
 			db.getCollection(MSGS_COLLECTION).insert(dto);
