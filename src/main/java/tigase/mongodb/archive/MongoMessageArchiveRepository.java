@@ -42,6 +42,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import tigase.archive.AbstractCriteria;
 import tigase.archive.RSM;
 import tigase.archive.db.AbstractMessageArchiveRepository;
@@ -337,6 +338,58 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			throw new TigaseDBException("Cound not remove items", ex);
 		}
 	}
+	
+	@Override
+	public List<String> getTags(BareJID owner, String startsWith, Criteria criteria) throws TigaseDBException {
+		List<String> results = new ArrayList<String>();
+		Cursor cursor = null;
+		try {
+			byte[] oid = generateId(owner);
+			Pattern tagPattern = Pattern.compile(startsWith + ".*");
+			List<DBObject> pipeline = new ArrayList<DBObject>();
+			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("owner", owner.toString());
+			DBObject matchCrit = new BasicDBObject("$match", crit);
+			pipeline.add(matchCrit);
+			pipeline.add(new BasicDBObject("$unwind", "$tags"));
+			pipeline.add(new BasicDBObject("$match", new BasicDBObject("tags", tagPattern)));
+			pipeline.add(new BasicDBObject("$group", new BasicDBObject("_id", "$tags")));
+			pipeline.add(new BasicDBObject("$group", new BasicDBObject("_id", 1).append("count", new BasicDBObject("$sum", 1))));
+		
+			cursor = db.getCollection(MSGS_COLLECTION).aggregate(pipeline, AggregationOptions.builder().allowDiskUse(true).outputMode(OutputMode.CURSOR).build());
+			int count = 0;
+			if (cursor.hasNext()) {
+				count = (Integer) cursor.next().get("count");
+			}
+			cursor.close();
+			criteria.setSize(count);
+			if (count > 0) {
+				pipeline.remove(pipeline.size() - 1);
+				pipeline.add(new BasicDBObject("$sort", new BasicDBObject("_id", 1)));
+				if (criteria.getOffset() > 0) {
+					pipeline.add(new BasicDBObject("$skip", criteria.getOffset()));
+				}
+				pipeline.add(new BasicDBObject("$limit", criteria.getLimit()));
+				cursor = db.getCollection(MSGS_COLLECTION).aggregate(pipeline, AggregationOptions.builder().allowDiskUse(true).outputMode(OutputMode.CURSOR).build());
+				while (cursor.hasNext()) {
+					DBObject dto = cursor.next();
+					results.add((String) dto.get("_id"));
+				}
+
+				RSM rsm = criteria.getRSM();
+				rsm.setResults(count, criteria.getOffset());
+				if (!results.isEmpty()) {
+					rsm.setFirst(String.valueOf(criteria.getOffset()));
+					rsm.setLast(String.valueOf(criteria.getOffset() + (results.size() - 1)));
+				}
+			}
+		} catch (Exception ex) {
+			throw new TigaseDBException("Could not retrieve list of used tags", ex);
+		} finally {
+			if (cursor != null)
+				cursor.close();
+		}
+		return results;
+	}
 
 	@Override
 	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
@@ -359,6 +412,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("date", 1));
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1));
 			msgs.createIndex(new BasicDBObject("body", "text"));
+			msgs.createIndex(new BasicDBObject("owner_id", 1).append("tags", 1));
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
