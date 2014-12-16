@@ -467,6 +467,9 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			if (dateCrit != null) {
 				crit.append("ts", dateCrit);
 			}
+			if (!getTags().isEmpty()) {
+				crit.append("tags", new BasicDBObject("$all", new ArrayList<String>(getTags())));
+			}
 			
 			if (!getContains().isEmpty()) {
 				StringBuilder containsSb = new StringBuilder();
