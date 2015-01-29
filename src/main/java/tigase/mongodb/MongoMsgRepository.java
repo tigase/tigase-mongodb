@@ -91,6 +91,12 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	private DB db;
 
 	@Override
+	public int deleteMessagesToJID( List<String> db_ids, JID to ) throws UserNotFoundException {
+		// temporary
+		throw new UnsupportedOperationException("Not supported yet.");
+	}
+
+	@Override
 	public Element getMessageExpired(long time, boolean delete) {
 		if (expiredQueue.size() == 0) {
 
@@ -128,6 +134,18 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 		}
 
 		return item.msg;		
+	}
+
+	@Override
+	public Map<MSG_TYPES, Long> getMessagesCount( JID to ) throws UserNotFoundException {
+		// temporary
+		throw new UnsupportedOperationException("Not supported yet.");
+	}
+
+	@Override
+	public List<Element> getMessagesList( JID to ) throws UserNotFoundException {
+		// temporary
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
@@ -222,6 +240,12 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			}
 		}
 		return result;
+	}
+
+	@Override
+	public Queue<Element> loadMessagesToJID( List<String> db_ids, JID to, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
+		// temporary
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
