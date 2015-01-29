@@ -37,7 +37,7 @@ import com.mongodb.MongoClientURI;
 
 /**
  *
- * @author Wojciech Kapcia <wojciech.kapcia@tigase.org>
+ * @author Wojciech Kapcia
  */
 @Repository.Meta(supportedUris = { "mongodb:.*" })
 public class CounterDataLoggerMongo extends CounterDataLogger {

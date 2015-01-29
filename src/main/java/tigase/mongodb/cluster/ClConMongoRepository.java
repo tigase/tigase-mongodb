@@ -91,14 +91,6 @@ public class ClConMongoRepository extends ClConConfigRepository
 
 	//~--- methods --------------------------------------------------------------
 
-	/**
-	 * Method description
-	 *
-	 *
-	 * @param conn_str
-	 * @param params
-	 * @throws tigase.db.DBInitException
-	 */
 	@Override
 	public void initRepository(String resource_uri, Map<String, String> params)
 					throws DBInitException {
@@ -119,6 +111,21 @@ public class ClConMongoRepository extends ClConConfigRepository
 			throw new DBInitException("Could not initialize MongoDB repository", ex);
 		}
 	}
+
+	@Override
+	public void removeItem( String key ) {
+		super.removeItem( key );
+
+		try {
+			BasicDBObject crit = new BasicDBObject("hostname", key);
+			db.getCollection(CLUSTER_NODES).remove(crit);
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem removing element from DB: ", ex);
+		}
+
+	}
+
+
 
 	/**
 	 * Method description
