@@ -152,6 +152,14 @@ public class ClConMongoRepository extends ClConConfigRepository
 	 */
 	@Override
 	public void reload() {
+		if ( ( System.currentTimeMillis() - lastReloadTime ) <= ( autoreload_interval * lastReloadTimeFactor ) ){
+			if ( log.isLoggable( Level.FINEST ) ){
+				log.log( Level.FINEST, "Last reload performed in {0}, skipping: ", ( System.currentTimeMillis() - lastReloadTime ) );
+			}
+			return;
+		}
+		lastReloadTime = System.currentTimeMillis();
+
 		super.reload();
 		DBCursor cursor = null;
 		try {
