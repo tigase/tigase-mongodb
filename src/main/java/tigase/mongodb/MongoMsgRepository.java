@@ -2,7 +2,7 @@
  * MongoMsgRepository.java
  *
  * Tigase Jabber/XMPP Server - MongoDB support
- * Copyright (C) 2004-2014 "Tigase, Inc." <office@tigase.com>
+ * Copyright (C) 2004-2015 "Tigase, Inc." <office@tigase.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -21,7 +21,38 @@
  */
 package tigase.mongodb;
 
-import com.mongodb.BasicDBList;
+import tigase.db.DBInitException;
+import tigase.db.Repository;
+import tigase.db.TigaseDBException;
+import tigase.db.UserNotFoundException;
+
+import tigase.server.Packet;
+import tigase.server.amp.MsgRepository;
+
+import tigase.xmpp.BareJID;
+import tigase.xmpp.JID;
+
+import tigase.util.DateTimeFormatter;
+import tigase.xml.DomBuilderHandler;
+import tigase.xml.Element;
+
+import java.net.UnknownHostException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
 import com.mongodb.DBCollection;
@@ -30,39 +61,8 @@ import com.mongodb.DBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
-import com.mongodb.ReadPreference;
 import com.mongodb.WriteConcern;
-import java.net.UnknownHostException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.DelayQueue;
-import java.util.concurrent.Delayed;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.bson.types.ObjectId;
-import tigase.db.DBInitException;
-import tigase.db.Repository;
-import tigase.db.TigaseDBException;
-import tigase.db.UserNotFoundException;
-import tigase.server.Packet;
-import tigase.server.amp.JDBCMsgRepository;
-import tigase.server.amp.MsgRepository;
-import tigase.xml.DomBuilderHandler;
-import tigase.xml.Element;
-import tigase.xml.SimpleParser;
-import tigase.xml.SingletonFactory;
-import tigase.xmpp.BareJID;
-import tigase.xmpp.JID;
 
 /**
  *
@@ -76,6 +76,8 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	private static final String MSG_HISTORY_COLLECTION = "msg_history";
 	private static final String MSG_BROADCAST_COLLECTION = "msg_broadcast";
 	private static final String MSG_BROADCAST_RECP_COLLECTION = "msg_broadcast_recp";
+
+	private static final DateTimeFormatter dt = new DateTimeFormatter();
 
 	private static final Comparator<DBObject> MSG_COMPARATOR = new Comparator<DBObject>() {
 		@Override
@@ -92,8 +94,44 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 
 	@Override
 	public int deleteMessagesToJID( List<String> db_ids, JID to ) throws UserNotFoundException {
-		// temporary
-		throw new UnsupportedOperationException("Not supported yet.");
+
+		int count = 0;
+		DBCursor cursor = null;
+		try {
+			byte[] toHash = generateId(to.getBareJID());
+
+			BasicDBObject crit = new BasicDBObject("to_hash", toHash).append("to", to.getBareJID().toString());
+
+
+			if ( db_ids == null || db_ids.size() == 0 ){
+				db.getCollection(MSG_HISTORY_COLLECTION).remove(crit, WriteConcern.UNACKNOWLEDGED);
+				
+			} else {
+
+				cursor = db.getCollection( MSG_HISTORY_COLLECTION ).find( crit );
+
+				while ( cursor.hasNext() ) {
+					DBObject it = cursor.next();
+
+					if ( it.containsField( "ts" ) ){
+						String msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
+						if ( db_ids.contains( msgId ) ){
+							db.getCollection( MSG_HISTORY_COLLECTION ).remove( it );
+							count++;
+						}
+					}
+				}
+			}
+
+ 		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem adding new entry to DB: ", ex);
+		} finally {
+			if (cursor != null) {
+				cursor.close();
+			}
+		}
+
+		return count;
 	}
 
 	@Override
@@ -138,14 +176,81 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 
 	@Override
 	public Map<MSG_TYPES, Long> getMessagesCount( JID to ) throws UserNotFoundException {
-		// temporary
-		throw new UnsupportedOperationException("Not supported yet.");
+
+		Map<MSG_TYPES, Long> result = new HashMap<>( MSG_TYPES.values().length );
+
+		DBCursor cursor = null;
+		try {
+			byte[] toHash = generateId( to.getBareJID() );
+
+			BasicDBObject crit = new BasicDBObject( "to_hash", toHash ).append( "to", to.getBareJID().toString() );
+
+			for ( MSG_TYPES type : MSG_TYPES.values() ) {
+				long count = db.getCollection( MSG_HISTORY_COLLECTION ).find( crit.append( "msg_type", type.toString() ) ).count();
+				if ( count > 0 ){
+					result.put( type, count );
+				}
+			}
+
+		} catch ( Exception ex ) {
+			log.log( Level.WARNING, "Problem adding new entry to DB: ", ex );
+		} finally {
+			if ( cursor != null ){
+				cursor.close();
+			}
+		}
+		return result;
 	}
 
 	@Override
 	public List<Element> getMessagesList( JID to ) throws UserNotFoundException {
-		// temporary
-		throw new UnsupportedOperationException("Not supported yet.");
+		// TODO: temporary
+
+		DBCursor cursor = null;
+		List<Element> result = new LinkedList<Element>();
+
+		try {
+			byte[] toHash = generateId( to.getBareJID() );
+
+			BasicDBObject crit = new BasicDBObject( "to_hash", toHash ).append( "to", to.getBareJID().toString() );
+
+			cursor = db.getCollection( MSG_HISTORY_COLLECTION ).find( crit );
+
+			while ( cursor.hasNext() ) {
+				DBObject it = cursor.next();
+
+				String msgId = null;
+				if ( it.containsField( "ts" ) ){
+					msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
+				}
+				String sender = null;
+				if ( it.containsField( "to" ) ){
+					sender =  (String) it.get( "to" ) ;
+				}
+				MSG_TYPES messageType = MSG_TYPES.none;
+				if ( it.containsField( "msg_type" ) ){
+					messageType = MSG_TYPES.valueOf( (String) it.get( "msg_type" ) );
+				}
+
+				if ( msgId != null && messageType != null && messageType != MSG_TYPES.none && sender != null ){
+					Element item = new Element( "item",
+																			new String[] { "jid", "node", "type", "name" },
+																			new String[] { to.getBareJID().toString(), msgId,
+																										 messageType.name(), sender } );
+					result.add( item );
+				}
+
+			}
+
+		} catch ( Exception ex ) {
+			log.log( Level.WARNING, "Problem retrieving itmes from DB: ", ex );
+		} finally {
+			if ( cursor != null ){
+				cursor.close();
+			}
+		}
+		return result;
+
 	}
 
 	@Override
@@ -198,37 +303,54 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	}
 
 	@Override
-	public Queue<Element> loadMessagesToJID(JID to, boolean delete) throws UserNotFoundException {
+	public Queue<Element> loadMessagesToJID( JID to, boolean delete )
+			throws UserNotFoundException {
+		return loadMessagesToJID( to, delete, null );
+	}
+
+	public Queue<Element> loadMessagesToJID(JID to, boolean delete, OfflineMessagesProcessor proc)
+			throws UserNotFoundException {
+		return loadMessagesToJID( null, to, delete, proc );
+
+	}
+
+	@Override
+	public Queue<Element> loadMessagesToJID( List<String> db_ids, JID to, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
+		// TODO: temporary
+
 		DBCursor cursor = null;
 		Queue<Element> result = null;
 		try {
 			byte[] toHash = generateId(to.getBareJID());
 
 			BasicDBObject crit = new BasicDBObject("to_hash", toHash).append("to", to.getBareJID().toString());
-			
+
 			cursor = db.getCollection(MSG_HISTORY_COLLECTION).find(crit);
-			
+
 			List<DBObject> list = new ArrayList<DBObject>();
 			while (cursor.hasNext()) {
 				DBObject it = cursor.next();
+
 				if (it.containsField("expired-at") && ((Date)it.get("expired-at")).getTime() < System.currentTimeMillis()) {
 					continue;
 				}
-				list.add(it);
+
+				if ( db_ids != null && db_ids.size() >= 0 ){
+					if ( it.containsField( "ts" ) ){
+						String msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
+						if ( db_ids.contains( msgId ) ){
+							list.add( it );
+						}
+					}
+				} else {
+					list.add( it );
+				}
 			}
-			
+
 			Collections.sort(list, MSG_COMPARATOR);
-			StringBuilder sb = new StringBuilder(1000);
-			for (DBObject it : list) {
-				sb.append(it.get("message"));
-			}
-			
-			if (sb.length() > 0) {
-				DomBuilderHandler domHandler = new DomBuilderHandler();
-				parser.parse(domHandler, sb.toString().toCharArray(), 0, sb.length());
-				result = domHandler.getParsedElements();
-			}
-			
+
+			result = parseLoadedMessages( proc, list);
+
 			if (delete) {
 				db.getCollection(MSG_HISTORY_COLLECTION).remove(crit, WriteConcern.UNACKNOWLEDGED);
 			}
@@ -240,12 +362,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			}
 		}
 		return result;
-	}
 
-	@Override
-	public Queue<Element> loadMessagesToJID( List<String> db_ids, JID to, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
-		// temporary
-		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
@@ -274,6 +391,16 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 				crit.append("expired-at", new BasicDBObject("$lt", new Date()));
 			}
 			dto.append("ts", new Date());
+
+			MSG_TYPES valueOf;
+			try {
+				final String name = msg.getName();
+				valueOf = MSG_TYPES.valueOf( name );
+			} catch ( IllegalArgumentException e ) {
+				valueOf = MSG_TYPES.none;
+			}
+
+			dto.append( "msg_type", valueOf.toString());
 			dto.append("message", msg.toString());
 			db.getCollection(MSG_HISTORY_COLLECTION).insert(dto, WriteConcern.UNACKNOWLEDGED);
 			
@@ -452,5 +579,51 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			log.log(Level.WARNING, "Problem inserting messages for broadcast to db: ", ex);
 		}
 	}
-	
+
+	private Queue<Element> parseLoadedMessages( OfflineMessagesProcessor proc, List<DBObject> list ) {
+		StringBuilder sb = new StringBuilder( 1000 );
+		Queue<Element> result = new LinkedList<Element>();
+		if ( proc != null ){
+
+			for ( DBObject it : list ) {
+
+				final String msg = (String) it.get( "message" );
+
+				String msgId = null;
+				if ( it.containsField( "ts" ) ){
+					msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
+				}
+
+				if ( msg != null ){
+					DomBuilderHandler domHandler = new DomBuilderHandler();
+
+					parser.parse( domHandler, msg.toCharArray(), 0, msg.length() );
+					final Queue<Element> parsedElements = domHandler.getParsedElements();
+					Element msgEl = parsedElements.poll();
+					if ( msgEl != null && msgId != null ){
+
+						proc.stamp( msgEl, msgId );
+
+						result.add( msgEl );
+					}
+				}
+
+			}
+
+		} else {
+			result = new LinkedList<Element>();
+
+			for ( DBObject it : list ) {
+				sb.append( it.get( "message" ) );
+			}
+
+			if ( sb.length() > 0 ){
+				DomBuilderHandler domHandler = new DomBuilderHandler();
+				parser.parse( domHandler, sb.toString().toCharArray(), 0, sb.length() );
+				result = domHandler.getParsedElements();
+			}
+		}
+		return result;
+	}
+
 }
