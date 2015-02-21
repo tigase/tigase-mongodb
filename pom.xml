@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
 
-    <groupId>tigase</groupId>
-    <artifactId>tigase-mongodb</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-    <name>Tigase MongoDB</name>
-    <description>Tigase MongoDB support library</description>
+	<groupId>tigase</groupId>
+	<artifactId>tigase-mongodb</artifactId>
+	<version>1.0.0-SNAPSHOT</version>
+	<name>Tigase MongoDB</name>
+	<description>Tigase MongoDB support library</description>
 	<packaging>bundle</packaging>
 
-    <developers>
-        <developer>
-            <name>Andrzej Wójcik</name>
+	<developers>
+		<developer>
+			<name>Andrzej Wójcik</name>
 			<roles>
 				<role>developer</role>
 			</roles>
-        </developer>
-    </developers>
+		</developer>
+	</developers>
 
 	<licenses>
 		<license>
@@ -26,171 +26,141 @@
 			<url>http://www.gnu.org/licenses/agpl.txt</url>
 		</license>
 	</licenses>
-	
+
+	<scm>
+		<connection>scm:git:https://repository.tigase.org/git/tigase-mongodb.git</connection>
+		<developerConnection>scm:git:https://repository.tigase.org/git/tigase-mongodb.git</developerConnection>
+		<url>https://projects.tigase.org/projects/tigase-mongodb/repository</url>
+	</scm>
+
 	<organization>
 		<name>"Tigase, Inc."</name>
 		<url>http://www.tigase.org</url>
 	</organization>
 
-    <build>
-        <finalName>${project.artifactId}-${project.version}</finalName>
-        <plugins>
-		<plugin>
-			<artifactId>maven-release-plugin</artifactId>
-			<version>2.5.1</version>
-		</plugin>
-            <!--<plugin>-->
-                <!--<artifactId>maven-clean-plugin</artifactId>-->
-                <!--<version>2.5</version>-->
-                <!--<configuration>-->
-                    <!--<filesets>-->
-                        <!--<fileset>-->
-                            <!--<directory>dist</directory>-->
-                            <!--<includes>-->
-                                <!--<include>**/*.jar</include>-->
-                                <!--<include>**/*.gz</include>-->
-                                <!--<include>**/*.zip</include>-->
-                            <!--</includes>-->
-                            <!--<followSymlinks>false</followSymlinks>-->
-                        <!--</fileset>-->
-                    <!--</filesets>-->
-                <!--</configuration>-->
-            <!--</plugin>-->
-<!--            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>buildnumber-maven-plugin</artifactId>
-                <version>1.2</version>
-                <configuration>
-                    <timestampFormat>{0,date} {0,time}</timestampFormat>
-                    <doCheck>false</doCheck>
-                    <doUpdate>false</doUpdate>
-                    <shortRevisionLength>8</shortRevisionLength>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>validate</phase>
-                        <goals>
-                            <goal>create</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>-->
+	<build>
+		<finalName>${project.artifactId}-${project.version}</finalName>
+		<plugins>
+			<plugin>
+				<artifactId>maven-release-plugin</artifactId>
+				<version>2.5.1</version>
+			</plugin>
 
-            <plugin>
-                <groupId>org.codehaus.gmaven</groupId>
-                <artifactId>gmaven-plugin</artifactId>
-                <version>1.5</version>
-                <executions>
-                    <execution>
-                        <id>gitver</id>
-                        <phase>validate</phase>
-                        <goals>
-                            <goal>execute</goal>
-                        </goals>
-                        <configuration>
-                            <providerSelection>2.0</providerSelection>
-                            <properties>
-                                <script>git rev-list HEAD --count</script>
-                            </properties>
-                            <source>
-                                def version
-                                try {
-                                    def command = project.properties.script
-                                    def process = command.execute()
-                                    process.waitFor()
+			<plugin>
+				<groupId>org.codehaus.gmaven</groupId>
+				<artifactId>gmaven-plugin</artifactId>
+				<version>1.5</version>
+				<executions>
+					<execution>
+						<id>gitver</id>
+						<phase>validate</phase>
+						<goals>
+							<goal>execute</goal>
+						</goals>
+						<configuration>
+							<providerSelection>2.0</providerSelection>
+							<properties>
+								<script>git rev-list HEAD --count</script>
+							</properties>
+							<source>
+								def version
+								try {
+								def command = project.properties.script
+								def process = command.execute()
+								process.waitFor()
 
-                                    version = process.in.text.trim()
-                                } catch (Exception e) {
-                                    version = '0'
-                                }
-                                println "setting revision to: " + version
+								version = process.in.text.trim()
+								} catch (Exception e) {
+								version = '0'
+								}
+								println "setting revision to: " + version
 
-                                project.properties.setProperty( 'gitVersion' , version )
+								project.properties.setProperty( 'gitVersion' , version )
 
-                            </source>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+							</source>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <version>2.5.1</version>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>1.7</source>
-                    <target>1.7</target>
-                    <encoding>UTF-8</encoding>
-                </configuration>
-            </plugin>
-            <plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<version>2.5.1</version>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<source>1.7</source>
+					<target>1.7</target>
+					<encoding>UTF-8</encoding>
+				</configuration>
+			</plugin>
+			<plugin>
 
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <version>2.9.1</version>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<version>2.9.1</version>
 
-                <executions>
-                    <execution>
-                        <id>dist</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                        <configuration>
-                            <source>1.7</source>
-                            <aggregate>true</aggregate>
-                            <quiet>true</quiet>
-                            <finalName>${project.artifactId}-${project.version}-b${gitVersion}</finalName>
-                            <jarOutputDirectory>dist</jarOutputDirectory>
+				<executions>
+					<execution>
+						<id>dist</id>
+						<phase>package</phase>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+						<configuration>
+							<source>1.7</source>
+							<aggregate>true</aggregate>
+							<quiet>true</quiet>
+							<finalName>${project.artifactId}-${project.version}-b${gitVersion}</finalName>
+							<jarOutputDirectory>dist</jarOutputDirectory>
 
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 
-            <plugin>
-                <groupId>org.apache.felix</groupId>
-                <artifactId>maven-bundle-plugin</artifactId>
-                <version>2.4.0</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions combine.inherited="append">
-                        <manifestLocation>src/main/resources/META-INF/MANIFEST.MF</manifestLocation>
-                        <Implementation-Title>${project.name}</Implementation-Title>
-                        <Implementation-Version>${project.version}-b${gitVersion}/${buildNumber}</Implementation-Version>
-                        <Implementation-Build>${gitVersion}/${buildNumber} (${maven.build.timestamp})</Implementation-Build>
-                        <Bundle-Activator>tigase.mongodb.Activator</Bundle-Activator>
-                        <Export-Package>tigase.mongodb</Export-Package>
-                    </instructions>
-                </configuration>
-            </plugin>
-        </plugins>
-        <extensions>
-            <extension>
-                <groupId>org.apache.maven.wagon</groupId>
-                <artifactId>wagon-ssh-external</artifactId>
-                <version>2.2</version>
-            </extension>
-            <extension>
-                <groupId>org.apache.maven.wagon</groupId>
-                <artifactId>wagon-ssh</artifactId>
-                <version>2.2</version>
-            </extension>
-        </extensions>
-    </build>
-    <dependencies>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.11</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>tigase</groupId>
-            <artifactId>tigase-server</artifactId>
+			<plugin>
+				<groupId>org.apache.felix</groupId>
+				<artifactId>maven-bundle-plugin</artifactId>
+				<version>2.4.0</version>
+				<extensions>true</extensions>
+				<configuration>
+					<instructions combine.inherited="append">
+						<manifestLocation>src/main/resources/META-INF/MANIFEST.MF</manifestLocation>
+						<Implementation-Title>${project.name}</Implementation-Title>
+						<Implementation-Version>${project.version}-b${gitVersion}/${buildNumber}</Implementation-Version>
+						<Implementation-Build>${gitVersion}/${buildNumber} (${maven.build.timestamp})</Implementation-Build>
+						<Bundle-Activator>tigase.mongodb.Activator</Bundle-Activator>
+						<Export-Package>tigase.mongodb</Export-Package>
+					</instructions>
+				</configuration>
+			</plugin>
+		</plugins>
+		<extensions>
+			<extension>
+				<groupId>org.apache.maven.wagon</groupId>
+				<artifactId>wagon-ssh-external</artifactId>
+				<version>2.2</version>
+			</extension>
+			<extension>
+				<groupId>org.apache.maven.wagon</groupId>
+				<artifactId>wagon-ssh</artifactId>
+				<version>2.2</version>
+			</extension>
+		</extensions>
+	</build>
+	<dependencies>
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.11</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>tigase</groupId>
+			<artifactId>tigase-server</artifactId>
 			<version>7.0.0-SNAPSHOT</version>
-            <scope>provided</scope>
-        </dependency>
+			<scope>provided</scope>
+		</dependency>
 		<dependency>
 			<groupId>tigase</groupId>
 			<artifactId>tigase-pubsub</artifactId>
@@ -219,38 +189,38 @@
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
-            <groupId>org.apache.felix</groupId>
-            <artifactId>org.osgi.core</artifactId>
-            <version>1.4.0</version>
-            <scope>provided</scope>
-        </dependency>
-    </dependencies>
-    <repositories>
-        <repository>
-            <id>tigase</id>
-            <name>Tigase repository</name>
-            <url>http://maven.tigase.org</url>
-        </repository>
-        <repository>
-            <id>tigase-snapshot</id>
-            <name>Tigase repository</name>
-            <url>http://build.xmpp-test.net/maven/</url>
-            <snapshots>
-                <enabled>true</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
-    <distributionManagement>
-        <repository>
-            <id>tigase</id>
-            <name>Tigase repository</name>
-            <url>scp://maven.tigase.org:/home/webapp/maven-repository</url>
-        </repository>
-        <snapshotRepository>
-            <id>tigase-snapshot</id>
-            <name>Tigase snapshot repository</name>
-            <url>scp://build.xmpp-test.net:/home/maven/repository</url>
-        </snapshotRepository>
-    </distributionManagement>
+			<groupId>org.apache.felix</groupId>
+			<artifactId>org.osgi.core</artifactId>
+			<version>1.4.0</version>
+			<scope>provided</scope>
+		</dependency>
+	</dependencies>
+	<repositories>
+		<repository>
+			<id>tigase</id>
+			<name>Tigase repository</name>
+			<url>http://maven.tigase.org</url>
+		</repository>
+		<repository>
+			<id>tigase-snapshot</id>
+			<name>Tigase repository</name>
+			<url>http://build.xmpp-test.net/maven/</url>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+	<distributionManagement>
+		<repository>
+			<id>tigase</id>
+			<name>Tigase repository</name>
+			<url>scp://maven.tigase.org:/home/webapp/maven-repository</url>
+		</repository>
+		<snapshotRepository>
+			<id>tigase-snapshot</id>
+			<name>Tigase snapshot repository</name>
+			<url>scp://build.xmpp-test.net:/home/maven/repository</url>
+		</snapshotRepository>
+	</distributionManagement>
 
 </project>
