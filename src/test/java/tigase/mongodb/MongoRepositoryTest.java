@@ -107,7 +107,42 @@ public class MongoRepositoryTest {
 		subnodes = repo.getSubnodes(jid, "test");
 		Assert.assertEquals(null, subnodes);
 		
+		repo.setDataList(jid, "test/node2", "list", new String[] { "item1", "item2" });
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
+		repo.removeSubnode(jid, "test");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+		
 		repo.removeUser(jid);
 		Assert.assertFalse("User removal failed", repo.userExists(jid));
+	}
+	
+	@Test
+	public void testExeutionTimes() throws Exception {	
+		BareJID jid = BareJID.bareJIDInstance("test-1@example.com");
+		
+		repo.addUser(jid);
+		
+		int counts = 1000;
+		
+		for (int i=0; i<counts; i++) {
+			repo.setData(jid, "rooms/test-" + i + "@test", "creation-date", "date-" + i);
+			repo.setData(jid, "rooms/test-" + i + "@test", "value", "date-" + i);
+		}
+		
+		long start = System.currentTimeMillis();
+		
+		for (int i=0; i<counts; i++) {
+			repo.removeSubnode(jid, "rooms/test-" + i + "@test");
+		}
+		
+		long end = System.currentTimeMillis();
+		long time = end - start;
+		System.out.println("executed in " + time + "ms for " + counts + " " + (time/counts) + " per execution");
+		
+		long timeLimit = counts * 2;
+		
+		Assert.assertTrue("Test should be executed in less than " + timeLimit + "ms", timeLimit > time);
 	}
 }

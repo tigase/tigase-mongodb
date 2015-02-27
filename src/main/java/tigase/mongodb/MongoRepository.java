@@ -289,7 +289,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			if (DOMAIN_KEY == null) {
 				crit.append(DOMAIN_KEY, domain);
 			} else {
-				Pattern regex = Pattern.compile(".+@" + domain.replace(".", "\\.") + "$", Pattern.CASE_INSENSITIVE);
+				Pattern regex = Pattern.compile(".+@" + domain.replace(".", "\\.") + "$");
 				crit.append(ID_KEY, regex);
 			}
 			return db.getCollection(USERS_COLLECTION).count(crit);
@@ -367,7 +367,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 		try {
 			byte[] uid = generateId(user);
 			BasicDBObject crit = new BasicDBObject("uid", uid);
-			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode + "/" : "") + "[^/]*", Pattern.CASE_INSENSITIVE);
+			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode : "") + "[^/]*");
 			crit.append("node", regex);
 			db.getCollection(NODES_COLLECTION).remove(crit);
 		} catch (MongoException ex) {
@@ -415,7 +415,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 		try {
 			byte[] uid = generateId(user);
 			BasicDBObject crit = new BasicDBObject("uid", uid);
-			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode + "/" : "") + "[^/]*", Pattern.CASE_INSENSITIVE);
+			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode + "/" : "") + "[^/]*");
 			crit.append("node", regex);
 			List<String> result = (List<String>) db.getCollection(NODES_COLLECTION).distinct("node", crit);
 			List<String> res = new ArrayList<>();
