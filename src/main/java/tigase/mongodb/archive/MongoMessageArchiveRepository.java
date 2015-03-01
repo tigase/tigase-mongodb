@@ -104,13 +104,18 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
+			byte[] hash = generateHashOfMessage(direction, msg);
+			
+			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("buddy_id", bid)
+					.append("ts", timestamp).append("hash", hash);
 			
 			BasicDBObject dto = new BasicDBObject("owner", owner.toString()).append("owner_id", oid)
 					.append("buddy", buddy.toString()).append("buddy_id", bid)
 					// adding date for aggregation
 					.append("date", date)
 					.append("direction", direction.name()).append("ts", timestamp)
-					.append("type", type).append("msg", msg.toString());
+					.append("type", type).append("msg", msg.toString())
+					.append("hash", hash);
 			
 			if (storePlaintextBody) {
 				String body = msg.getChildCData(MSG_BODY_PATH);
@@ -123,7 +128,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 				dto.append("tags", new ArrayList<String>(tags));
 			}
 			
-			db.getCollection(MSGS_COLLECTION).insert(dto);
+			db.getCollection(MSGS_COLLECTION).update(crit, dto, true, false);//.insert(dto);
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem adding new entry to DB: " + msg, ex);
 		}
@@ -413,6 +418,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1));
 			msgs.createIndex(new BasicDBObject("body", "text"));
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("tags", 1));
+			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1).append("hash", 1));
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
