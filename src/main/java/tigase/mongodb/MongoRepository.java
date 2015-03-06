@@ -21,6 +21,28 @@
  */
 package tigase.mongodb;
 
+import tigase.db.AuthRepository;
+import tigase.db.AuthRepositoryImpl;
+import tigase.db.AuthorizationException;
+import tigase.db.DBInitException;
+import tigase.db.Repository;
+import tigase.db.TigaseDBException;
+import tigase.db.UserExistsException;
+import tigase.db.UserNotFoundException;
+import tigase.db.UserRepository;
+
+import tigase.xmpp.BareJID;
+
+import tigase.util.StringUtilities;
+
+import java.net.UnknownHostException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
 import com.mongodb.BasicDBObject;
 import com.mongodb.BulkWriteOperation;
 import com.mongodb.DB;
@@ -32,27 +54,18 @@ import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
 import com.mongodb.WriteResult;
-import java.net.UnknownHostException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Pattern;
-import tigase.db.*;
-import tigase.xmpp.BareJID;
 
 /**
  * MongoRepository is implementation of UserRepository and AuthRepository which
  * supports MongoDB data store.
- * 
+ *
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class MongoRepository implements AuthRepository, UserRepository {
 
 	private static final String JID_HASH_ALG = "SHA-256";
-	
+
 	private static final String USERS_COLLECTION = "tig_users";
 	private static final String NODES_COLLECTION = "tig_nodes";
 
@@ -81,41 +94,43 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			//uri.get
 			mongo = new MongoClient(uri);
 			db = mongo.getDB(uri.getDatabase());
-			
+
 			DBCollection users = null;
 			if (!db.collectionExists(USERS_COLLECTION)) {
 				users = db.createCollection(USERS_COLLECTION, new BasicDBObject());
 			} else {
 				users = db.getCollection(USERS_COLLECTION);
 			}
-			DBCollection nodes = db.collectionExists(NODES_COLLECTION) 
+			DBCollection nodes = db.collectionExists(NODES_COLLECTION)
 					? db.getCollection(NODES_COLLECTION) : db.createCollection(NODES_COLLECTION, new BasicDBObject());
 			nodes.createIndex(new BasicDBObject("uid", 1));
 			nodes.createIndex(new BasicDBObject("node", 1));
 			nodes.createIndex(new BasicDBObject("key", 1));
-			
-			// let's override AuthRepositoryImpl to store password inside objects in tig_users 
+
+			// let's override AuthRepositoryImpl to store password inside objects in tig_users
 			auth = new AuthRepositoryImpl(this) {
 				@Override
 				public String getPassword(BareJID user) throws TigaseDBException {
 					try {
 						byte[] id = generateId(user);
-						DBObject userDto = db.getCollection(USERS_COLLECTION).findOne(new BasicDBObject("_id", id).append(ID_KEY, user.toString()));
-						if (userDto == null) 
+						DBObject userDto = db.getCollection(USERS_COLLECTION).findOne(new BasicDBObject("_id", id)
+								.append(ID_KEY, user.toString()));
+						if (userDto == null)
 							throw new UserNotFoundException("User " + user + " not found in repository");
 						return (String) userDto.get(PASSWORD_KEY);
 					} catch (MongoException ex) {
 						throw new TigaseDBException("Error retrieving password for user " + user, ex);
 					}
 				}
-				
+
 				@Override
 				public void updatePassword(BareJID user, String password) throws TigaseDBException {
 					try {
 						byte[] id = generateId(user);
 						WriteResult result = db.getCollection(USERS_COLLECTION).update(
-								new BasicDBObject("_id", id).append(ID_KEY, user.toString()), new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
-						if (result == null || !result.isUpdateOfExisting()) 
+								new BasicDBObject("_id", id).append(ID_KEY, user.toString()),
+								new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
+						if (result == null || !result.isUpdateOfExisting())
 							throw new UserNotFoundException("User " + user + " not found in repository");
 					} catch (MongoException ex) {
 						throw new TigaseDBException("Error retrieving password for user " + user, ex);
@@ -142,7 +157,9 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public void addDataList(BareJID user, String subnode, String key, String[] list) throws UserNotFoundException, TigaseDBException {
+	public void addDataList(BareJID user, String subnode, String key, String[] list)
+			throws UserNotFoundException, TigaseDBException {
+		subnode = normalizeSubnode( subnode );
 		try {
 			byte[] uid = generateId(user);
 			BasicDBObject dto = new BasicDBObject("uid", uid).append("node", subnode).append("key", key).append("values", list);
@@ -159,6 +176,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	private BasicDBObject createCrit(BareJID user, String subnode, String key) throws TigaseDBException {
+		subnode = normalizeSubnode( subnode );
 		byte[] uid = generateId(user);
 		BasicDBObject crit = new BasicDBObject("uid", uid);
 		if (key != null)
@@ -170,14 +188,15 @@ public class MongoRepository implements AuthRepository, UserRepository {
 		}
 		return crit;
 	}
-	
+
 	private DBObject getDataInt(BareJID user, String subnode, String key) throws TigaseDBException {
 		BasicDBObject crit = createCrit(user, subnode, key);
 		return db.getCollection(NODES_COLLECTION).findOne(crit);
 	}
-	
+
 	@Override
-	public String getData(BareJID user, String subnode, String key, String def) throws UserNotFoundException, TigaseDBException {
+	public String getData(BareJID user, String subnode, String key, String def)
+			throws UserNotFoundException, TigaseDBException {
 		String value = getData(user, subnode, key);
 		if (value == null)
 			value = def;
@@ -185,7 +204,8 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public String getData(BareJID user, String subnode, String key) throws UserNotFoundException, TigaseDBException {
+	public String getData(BareJID user, String subnode, String key)
+			throws UserNotFoundException, TigaseDBException {
 		try {
 			DBObject result = getDataInt(user, subnode, key);
 			return (result != null) ? (String) result.get("value") : null;
@@ -207,7 +227,8 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public String[] getDataList(BareJID user, String subnode, String key) throws UserNotFoundException, TigaseDBException {
+	public String[] getDataList(BareJID user, String subnode, String key)
+			throws UserNotFoundException, TigaseDBException {
 		DBCursor cursor = null;
 		try {
 			List<String> values = new ArrayList<>();
@@ -226,7 +247,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			throw new TigaseDBException("Problem retrieving data list from repository", ex);
 		}
 		finally {
-			if (cursor != null) 
+			if (cursor != null)
 				cursor.close();
 		}
 	}
@@ -238,7 +259,8 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			List<String> result = db.getCollection(NODES_COLLECTION).distinct("key", crit);
 			return result.toArray(new String[result.size()]);
 		} catch (MongoException ex) {
-			throw new TigaseDBException("Problem retrieving keys for " + user + " and subnode " + subnode + " from repository", ex);
+			throw new TigaseDBException("Problem retrieving keys for " + user
+																	+ " and subnode " + subnode + " from repository", ex);
 		}
 	}
 
@@ -312,21 +334,23 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public void setDataList(BareJID user, String subnode, String key, String[] list) throws UserNotFoundException, TigaseDBException {
-			try {
-				
-			BasicDBObject crit = createCrit(user, subnode, key);
-			BasicDBObject dto = new BasicDBObject(crit).append("values", list);
-			if (subnode == null)
-				dto.remove("node");
-	
-			BulkWriteOperation builder = db.getCollection(NODES_COLLECTION).initializeOrderedBulkOperation();
-			builder.find(crit).remove();
-			builder.insert(dto);
+	public void setDataList(BareJID user, String subnode, String key, String[] list)
+			throws UserNotFoundException, TigaseDBException {
+		try {
+
+			BasicDBObject crit = createCrit( user, subnode, key );
+			BasicDBObject dto = new BasicDBObject( crit ).append( "values", list );
+			if ( subnode == null ) {
+				dto.remove( "node" );
+			}
+
+			BulkWriteOperation builder = db.getCollection( NODES_COLLECTION ).initializeOrderedBulkOperation();
+			builder.find( crit ).remove();
+			builder.insert( dto );
 			builder.execute();
-		} catch (MongoException ex) {
-			throw new TigaseDBException("Problem setting values in repository", ex);
-		}	
+		} catch ( MongoException ex ) {
+			throw new TigaseDBException( "Problem setting values in repository", ex );
+		}
 	}
 
 	@Override
@@ -335,16 +359,17 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public void setData(BareJID user, String subnode, String key, String value) throws UserNotFoundException, TigaseDBException {
+	public void setData(BareJID user, String subnode, String key, String value)
+			throws UserNotFoundException, TigaseDBException {
 		try {
 			BasicDBObject crit = createCrit(user, subnode, key);
-			BasicDBObject dto = new BasicDBObject(crit).append("value", value); 
+			BasicDBObject dto = new BasicDBObject(crit).append("value", value);
 			if (subnode == null)
 				dto.remove("node");
 			db.getCollection(NODES_COLLECTION).update(crit, dto, true, false);
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Problem setting values in repository", ex);
-		}	
+		}
 	}
 
 	@Override
@@ -355,7 +380,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			userDto.append("_id", id);
 			userDto.append(ID_KEY, user.toString());
 			db.getCollection(USERS_COLLECTION).remove(userDto);
-			
+
 			removeSubnode(user, null);
 		} catch (MongoException e) {
 			throw new TigaseDBException("Error removing user from repository: ", e);
@@ -364,6 +389,8 @@ public class MongoRepository implements AuthRepository, UserRepository {
 
 	@Override
 	public void removeSubnode(BareJID user, String subnode) throws UserNotFoundException, TigaseDBException {
+		subnode = normalizeSubnode( subnode );
+
 		try {
 			byte[] uid = generateId(user);
 			BasicDBObject crit = new BasicDBObject("uid", uid);
@@ -412,6 +439,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 
 	@Override
 	public String[] getSubnodes(BareJID user, String subnode) throws UserNotFoundException, TigaseDBException {
+		subnode = normalizeSubnode( subnode );
 		try {
 			byte[] uid = generateId(user);
 			BasicDBObject crit = new BasicDBObject("uid", uid);
@@ -431,8 +459,17 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			}
 			return res.isEmpty() ? null : res.toArray(new String[res.size()]);
 		} catch (MongoException ex) {
-			throw new TigaseDBException("Error removing subnode from repository: ", ex);
+			throw new TigaseDBException("Error getting subnode from repository: ", ex);
 		}
+	}
+
+	private String normalizeSubnode( String subnode ) {
+		// normalize subnode so it will always be without trailing slashes
+		if ( subnode != null ){
+			String[] split = subnode.split( "/" );
+			subnode = StringUtilities.stringArrayToString( split, "/" );
+		}
+		return subnode;
 	}
 
 	@Override
@@ -446,17 +483,20 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public void logout(BareJID user) throws UserNotFoundException, TigaseDBException {
+	public void logout(BareJID user)
+			throws UserNotFoundException, TigaseDBException {
 		auth.logout(user);
 	}
 
 	@Override
-	public boolean otherAuth(Map<String, Object> authProps) throws UserNotFoundException, TigaseDBException, AuthorizationException {
+	public boolean otherAuth(Map<String, Object> authProps)
+			throws UserNotFoundException, TigaseDBException, AuthorizationException {
 		return auth.otherAuth(authProps);
 	}
 
 	@Override
-	public boolean plainAuth(BareJID user, String password) throws UserNotFoundException, TigaseDBException, AuthorizationException {
+	public boolean plainAuth(BareJID user, String password)
+			throws UserNotFoundException, TigaseDBException, AuthorizationException {
 		return auth.plainAuth(user, password);
 	}
 
@@ -466,12 +506,14 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	}
 
 	@Override
-	public String getPassword(BareJID user) throws UserNotFoundException, TigaseDBException {
+	public String getPassword(BareJID user)
+			throws UserNotFoundException, TigaseDBException {
 		return null;
 	}
 
 	@Override
-	public void updatePassword(BareJID user, String password) throws UserNotFoundException, TigaseDBException {
+	public void updatePassword(BareJID user, String password)
+			throws UserNotFoundException, TigaseDBException {
 		auth.updatePassword(user, password);
 	}
 }
