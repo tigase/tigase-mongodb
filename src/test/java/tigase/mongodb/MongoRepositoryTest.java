@@ -21,16 +21,20 @@
  */
 package tigase.mongodb;
 
+import tigase.db.DBInitException;
+import tigase.db.TigaseDBException;
+
+import tigase.xmpp.BareJID;
+
+import tigase.util.TigaseStringprepException;
+
 import java.util.HashMap;
-import org.junit.Assert;
+
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-import tigase.db.DBInitException;
-import tigase.db.TigaseDBException;
-import tigase.util.TigaseStringprepException;
-import tigase.xmpp.BareJID;
 
 /**
  *
@@ -44,7 +48,7 @@ public class MongoRepositoryTest {
 	@Before
 	public void setup() throws DBInitException {
 		repo = new MongoRepository();
-		repo.initRepository("mongodb://localhost/tigase_junit", new HashMap<String,String>());
+		repo.initRepository("mongodb://atlantiscity/tigase_junit", new HashMap<String,String>());
 	}
 	
 	@After
@@ -80,7 +84,7 @@ public class MongoRepositoryTest {
 		repo.setData(jid, "key1", "test value 1");
 		String[] keys = repo.getKeys(jid);
 		Assert.assertArrayEquals(new String[] { "key1" }, keys);
-		
+
 		repo.setData(jid, "test/node", "key2", "test value 2");
 		keys = repo.getKeys(jid);
 		Assert.assertArrayEquals(new String[] { "key1" }, keys);
@@ -93,6 +97,9 @@ public class MongoRepositoryTest {
 		Assert.assertArrayEquals(new String[] { "test" }, subnodes);
 		subnodes = repo.getSubnodes(jid, "test");
 		Assert.assertArrayEquals(new String[] { "node", "node2" }, subnodes);
+		repo.setDataList(jid, "test/node3/subnode1", "list", new String[] { "item1", "item2" });
+		subnodes = repo.getSubnodes(jid, "test/");
+		Assert.assertArrayEquals(new String[] { "node", "node2", "node3" }, subnodes);
 		
 		// cleaning up
 		repo.removeData(jid, "key1");
@@ -102,8 +109,11 @@ public class MongoRepositoryTest {
 		subnodes = repo.getSubnodes(jid);
 		Assert.assertArrayEquals(new String[] { "test" }, subnodes);
 		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
+		Assert.assertArrayEquals(new String[] { "node2", "node3" }, subnodes);
 		repo.removeData(jid, "test/node2", "list");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(new String[] { "node3" }, subnodes);
+		repo.removeData(jid, "test/node3/subnode1", "list");
 		subnodes = repo.getSubnodes(jid, "test");
 		Assert.assertEquals(null, subnodes);
 		
@@ -113,7 +123,24 @@ public class MongoRepositoryTest {
 		repo.removeSubnode(jid, "test");
 		subnodes = repo.getSubnodes(jid, "test");
 		Assert.assertEquals(null, subnodes);
-		
+
+		// once more
+		repo.setDataList(jid, "test/node2", "list", new String[] { "item1", "item2" });
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
+		repo.removeSubnode(jid, "test/");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+
+		// once more
+		repo.setDataList(jid, "test/node2/", "list", new String[] { "item1", "item2" });
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
+		repo.removeSubnode(jid, "test");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+
+
 		repo.removeUser(jid);
 		Assert.assertFalse("User removal failed", repo.userExists(jid));
 	}
