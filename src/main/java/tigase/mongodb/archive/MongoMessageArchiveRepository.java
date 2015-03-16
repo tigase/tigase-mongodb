@@ -209,7 +209,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					DBObject dto = cursor.next();
 					String buddy = (String) dto.get("buddy");
 					Date ts = (Date) dto.get("ts");
-					addCollectionToResults(results, buddy, ts);
+					addCollectionToResults(results, criteria, buddy, ts);
 				}
 			}
 			
@@ -299,7 +299,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					Queue<Element> queue = domHandler.getParsedElements();
 					Element msg = null;
 					while ((msg = queue.poll()) != null) {
-						addMessageToResults(results, startTimestamp, msg, ts, direction, with);
+						addMessageToResults(results, criteria, startTimestamp, msg, ts, direction, with);
 					}
 				}
 			}
