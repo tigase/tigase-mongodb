@@ -4,7 +4,7 @@
 
 	<groupId>tigase</groupId>
 	<artifactId>tigase-mongodb</artifactId>
-	<version>1.0.0</version>
+	<version>1.0.1-SNAPSHOT</version>
 	<name>Tigase MongoDB</name>
 	<description>Tigase MongoDB support library</description>
 	<packaging>bundle</packaging>
