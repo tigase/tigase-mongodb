@@ -48,7 +48,7 @@ public class MongoRepositoryTest {
 	@Before
 	public void setup() throws DBInitException {
 		repo = new MongoRepository();
-		repo.initRepository("mongodb://atlantiscity/tigase_junit", new HashMap<String,String>());
+		repo.initRepository("mongodb://localhost/tigase_junit", new HashMap<String,String>());
 	}
 	
 	@After
