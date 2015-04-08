@@ -54,6 +54,7 @@ import tigase.xml.Element;
 import tigase.xml.SimpleParser;
 import tigase.xml.SingletonFactory;
 import tigase.xmpp.BareJID;
+import tigase.xmpp.JID;
 import tigase.xmpp.RSM;
 
 /**
@@ -97,20 +98,21 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}	
 	
 	@Override
-	public void archiveMessage(BareJID owner, BareJID buddy, Direction direction, Date timestamp, Element msg, Set<String> tags) {
+	public void archiveMessage(BareJID owner, JID buddy, Direction direction, Date timestamp, Element msg, Set<String> tags) {
 		try {
 			byte[] oid = generateId(owner);
-			byte[] bid = generateId(buddy);
+			byte[] bid = generateId(buddy.getBareJID());
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
-			byte[] hash = generateHashOfMessage(direction, msg);
+			byte[] hash = generateHashOfMessage(direction, msg, null);
 			
 			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("buddy_id", bid)
 					.append("ts", timestamp).append("hash", hash);
 			
 			BasicDBObject dto = new BasicDBObject("owner", owner.toString()).append("owner_id", oid)
-					.append("buddy", buddy.toString()).append("buddy_id", bid)
+					.append("buddy", buddy.getBareJID().toString()).append("buddy_id", bid)
+					.append("buddy_res", buddy.getResource())
 					// adding date for aggregation
 					.append("date", date)
 					.append("direction", direction.name()).append("ts", timestamp)

@@ -63,6 +63,7 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
 import com.mongodb.WriteConcern;
 import org.bson.types.ObjectId;
+import tigase.xmpp.XMPPResourceConnection;
 
 /**
  *
@@ -93,14 +94,16 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	private DB db;
 
 	@Override
-	public int deleteMessagesToJID( List<String> db_ids, JID to ) throws UserNotFoundException {
+	public int deleteMessagesToJID( List<String> db_ids, XMPPResourceConnection session ) throws UserNotFoundException {
 
 		int count = 0;
 		DBCursor cursor = null;
+		BareJID to = null;
 		try {
-			byte[] toHash = generateId(to.getBareJID());
+			to = session.getBareJID();
+			byte[] toHash = generateId(to);
 
-			BasicDBObject crit = new BasicDBObject("to_hash", toHash).append("to", to.getBareJID().toString());
+			BasicDBObject crit = new BasicDBObject("to_hash", toHash).append("to", to.toString());
 
 
 			if ( db_ids == null || db_ids.size() == 0 ){
@@ -175,9 +178,9 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	}
 
 	@Override
-	public Map<MSG_TYPES, Long> getMessagesCount( JID to ) throws UserNotFoundException {
+	public Map<Enum, Long> getMessagesCount( JID to ) throws UserNotFoundException {
 
-		Map<MSG_TYPES, Long> result = new HashMap<>( MSG_TYPES.values().length );
+		Map<Enum, Long> result = new HashMap<>( MSG_TYPES.values().length );
 
 		DBCursor cursor = null;
 		try {
@@ -303,27 +306,30 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	}
 
 	@Override
-	public Queue<Element> loadMessagesToJID( JID to, boolean delete )
+	public Queue<Element> loadMessagesToJID( XMPPResourceConnection session, boolean delete )
 			throws UserNotFoundException {
-		return loadMessagesToJID( to, delete, null );
+		return loadMessagesToJID( session, delete, null );
 	}
 
-	public Queue<Element> loadMessagesToJID(JID to, boolean delete, OfflineMessagesProcessor proc)
+	public Queue<Element> loadMessagesToJID(XMPPResourceConnection session, boolean delete, OfflineMessagesProcessor proc)
 			throws UserNotFoundException {
-		return loadMessagesToJID( null, to, delete, proc );
+		return loadMessagesToJID( null, session, delete, proc );
 
 	}
 
 	@Override
-	public Queue<Element> loadMessagesToJID( List<String> db_ids, JID to, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
+	public Queue<Element> loadMessagesToJID( List<String> db_ids, XMPPResourceConnection session, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
 		// TODO: temporary
 
 		DBCursor cursor = null;
 		Queue<Element> result = null;
+		BareJID to = null;
+		
 		try {
-			byte[] toHash = generateId(to.getBareJID());
+			to = session.getBareJID();
+			byte[] toHash = generateId(to);
 
-			BasicDBObject crit = new BasicDBObject("to_hash", toHash).append("to", to.getBareJID().toString());
+			BasicDBObject crit = new BasicDBObject("to_hash", toHash).append("to", to.toString());
 
 			cursor = db.getCollection(MSG_HISTORY_COLLECTION).find(crit);
 
