@@ -63,6 +63,7 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
 import com.mongodb.WriteConcern;
 import org.bson.types.ObjectId;
+import tigase.db.NonAuthUserRepository;
 import tigase.xmpp.XMPPResourceConnection;
 
 /**
@@ -86,8 +87,6 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			return ((Date) o1.get("ts")).compareTo((Date) o2.get("ts"));
 		}		
 	};
-	
-	private long msgs_store_limit = MSGS_STORE_LIMIT_VAL;
 	
 	private String resourceUri;
 	private MongoClient mongo;
@@ -293,13 +292,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 				broadcastMsgRecpCollection.createIndex(new BasicDBObject("msg_id", 1).append("recipient_id", 1), new BasicDBObject("unique", true));
 			}
 			
-			if (map != null) {
-				String msgs_store_limit_str = map.get(MSGS_STORE_LIMIT_KEY);
-
-				if (msgs_store_limit_str != null) {
-					msgs_store_limit = Long.parseLong(msgs_store_limit_str);
-				}
-			}
+			super.initRepository(resourceUri, map);
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
@@ -372,7 +365,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	}
 
 	@Override
-	public void storeMessage(JID from, JID to, Date expired, Element msg) throws UserNotFoundException {
+	public boolean storeMessage(JID from, JID to, Date expired, Element msg, NonAuthUserRepository userRepo) throws UserNotFoundException {
 		try {
 			byte[] fromHash = generateId(from.getBareJID());
 			byte[] toHash = generateId(to.getBareJID());
@@ -381,13 +374,13 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 					.append("from", from.getBareJID().toString()).append("to", to.getBareJID().toString());
 			
 			long count = db.getCollection(MSG_HISTORY_COLLECTION).count(crit);
-			
+			long msgs_store_limit = getMsgsStoreLimit(to.getBareJID(), userRepo);
 			if (msgs_store_limit <= count) {
 				if (log.isLoggable(Level.FINEST)) {
 					log.log(Level.FINEST, "Message store limit ({0}) exceeded for message: {1}",
 							new Object[] { msgs_store_limit, Packet.elemToString(msg) });
 				}
-				return;
+				return false;
 			}
 			
 			BasicDBObject dto = crit;
@@ -409,7 +402,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 			dto.append( "msg_type", valueOf.toString());
 			dto.append("message", msg.toString());
 			db.getCollection(MSG_HISTORY_COLLECTION).insert(dto, WriteConcern.UNACKNOWLEDGED);
-			
+		
 			if (expired != null) {
 				if (expired.getTime() < earliestOffline) {
 					earliestOffline = expired.getTime();
@@ -422,6 +415,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem adding new entry to DB: ", ex);
 		}
+		return true;
 	}
 
 	@Override
@@ -437,7 +431,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 	protected void loadExpiredQueue(int max) {
 		DBCursor cursor = null;
 		try {
-			cursor = db.getCollection(MSGS_STORE_LIMIT_KEY).find(new BasicDBObject("ts",
+			cursor = db.getCollection(MSG_HISTORY_COLLECTION).find(new BasicDBObject("ts",
 					new BasicDBObject("$lt", new Date()))).sort(new BasicDBObject("ts", 1)).limit(max);
 
 			DomBuilderHandler domHandler = new DomBuilderHandler();
@@ -482,7 +476,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId> {
 				expiredQueue.clear();
 			}
 			
-			cursor = db.getCollection(MSGS_STORE_LIMIT_KEY).find(new BasicDBObject("ts",
+			cursor = db.getCollection(MSG_HISTORY_COLLECTION).find(new BasicDBObject("ts",
 					new BasicDBObject("$lt", expired))).sort(new BasicDBObject("ts", 1));
 
 			DomBuilderHandler domHandler = new DomBuilderHandler();
