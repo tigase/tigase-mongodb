@@ -57,7 +57,7 @@ public class MongoHistoryProviderTest {
 		provider = new MongoHistoryProvider();
 		provider.initRepository("mongodb://localhost/tigase_junit", new HashMap<String,String>());
 		
-		room = Room.newInstance(new RoomConfig(BareJID.bareJIDInstanceNS("test@muc.example"), true), new Date(), test1.getBareJID());
+		room = Room.newInstance(new RoomConfig(BareJID.bareJIDInstanceNS("test@muc.example")), new Date(), test1.getBareJID());
 	}
 	
 	@After
