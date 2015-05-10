@@ -516,4 +516,16 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			throws UserNotFoundException, TigaseDBException {
 		auth.updatePassword(user, password);
 	}
+	
+	@Override
+	public boolean isUserDisabled(BareJID user) 
+					throws UserNotFoundException, TigaseDBException {
+		return false;
+	}
+	
+	@Override
+	public void setUserDisabled(BareJID user, Boolean value) 
+					throws UserNotFoundException, TigaseDBException {
+		throw new TigaseDBException("Feature not supported");
+	}	
 }
