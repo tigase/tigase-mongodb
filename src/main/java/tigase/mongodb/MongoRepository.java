@@ -71,11 +71,13 @@ public class MongoRepository implements AuthRepository, UserRepository {
 
 	private static final String ID_KEY = "user_id";
 	private static final String DOMAIN_KEY = "domain";
+	private static final String AUTO_CREATE_USER_KEY = "autoCreateUser=";
 
 	private String resourceUri;
 	private MongoClient mongo;
 	private DB db;
 	private AuthRepository auth;
+	private boolean autoCreateUser = false;
 
 	private byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
@@ -90,8 +92,20 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
 		try {
 			resourceUri = resource_uri;
+			int idx = resource_uri.indexOf(AUTO_CREATE_USER_KEY);
+			if (idx > -1) {
+				int valIdx = idx + AUTO_CREATE_USER_KEY.length();
+				String val = resource_uri.substring(valIdx, valIdx + 4);
+				if (resource_uri.length() > valIdx + 4) {
+					resource_uri = resource_uri.substring(0, idx) + resource_uri.substring(valIdx + 5);
+				} else {
+					resource_uri = resource_uri.substring(0, idx-1);
+				}
+				autoCreateUser = Boolean.parseBoolean(val);
+			}
+
 			MongoClientURI uri = new MongoClientURI(resource_uri);
-			//uri.get
+			
 			mongo = new MongoClient(uri);
 			db = mongo.getDB(uri.getDatabase());
 
@@ -156,6 +170,19 @@ public class MongoRepository implements AuthRepository, UserRepository {
 		}
 	}
 
+	private void ensureUserExists(BareJID user, byte[] id) throws TigaseDBException {
+		try {
+			BasicDBObject userDto = new BasicDBObject().append(ID_KEY, user.toString());
+			userDto.append(DOMAIN_KEY, user.getDomain());
+			if (id == null)
+				id = generateId(user);
+			userDto.append("_id", id);
+			db.getCollection(USERS_COLLECTION).update(userDto, userDto, true, false);			
+		} catch (MongoException ex) {
+			throw new TigaseDBException("Error adding user to repository: ", ex);
+		}
+	}
+	
 	@Override
 	public void addDataList(BareJID user, String subnode, String key, String[] list)
 			throws UserNotFoundException, TigaseDBException {
@@ -164,6 +191,9 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			byte[] uid = generateId(user);
 			BasicDBObject dto = new BasicDBObject("uid", uid).append("node", subnode).append("key", key).append("values", list);
 			db.getCollection(NODES_COLLECTION).insert(dto);
+			if (autoCreateUser) {
+				ensureUserExists(user, uid);
+			}
 		}
 		catch (MongoException ex) {
 			throw new TigaseDBException("Problem adding data list to repository", ex);
@@ -348,6 +378,9 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			builder.find( crit ).remove();
 			builder.insert( dto );
 			builder.execute();
+			if (autoCreateUser) {
+				ensureUserExists(user, null);
+			}
 		} catch ( MongoException ex ) {
 			throw new TigaseDBException( "Problem setting values in repository", ex );
 		}
@@ -367,6 +400,9 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			if (subnode == null)
 				dto.remove("node");
 			db.getCollection(NODES_COLLECTION).update(crit, dto, true, false);
+			if (autoCreateUser) {
+				ensureUserExists(user, null);
+			}			
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Problem setting values in repository", ex);
 		}

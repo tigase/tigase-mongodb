@@ -172,4 +172,60 @@ public class MongoRepositoryTest {
 		
 		Assert.assertTrue("Test should be executed in less than " + timeLimit + "ms", timeLimit > time);
 	}
+	
+	private void prepareUserAutoCreateRepo() throws Exception {
+		String uri = repo.getResourceUri();
+		if (uri.contains("?")) {
+			uri += "&";
+		} else {
+			uri += "?";
+		}
+		uri += "autoCreateUser=true";
+		repo = new MongoRepository();
+		repo.initRepository(uri, new HashMap<String,String>());		
+	}
+	
+	@Test
+	public void testAddDataListUserAutoCreate() throws Exception {
+		prepareUserAutoCreateRepo();
+		
+		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
+		String[] data = new String[] {
+			"test1",
+			"test2",
+			"test3"
+		};
+		
+		repo.addDataList(userJID, "test-node", "test-key", data);
+		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
+		Assert.assertArrayEquals(data, repo.getDataList(userJID, "test-node", "test-key"));
+	}
+
+	@Test
+	public void testSetDataListUserAutoCreate() throws Exception {
+		prepareUserAutoCreateRepo();
+		
+		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
+		String[] data = new String[] {
+			"test1",
+			"test2",
+			"test3"
+		};
+		
+		repo.setDataList(userJID, "test-node", "test-key", data);
+		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
+		Assert.assertArrayEquals(data, repo.getDataList(userJID, "test-node", "test-key"));		
+	}
+	
+	@Test
+	public void testSetDataUserAutoCreate() throws Exception {
+		prepareUserAutoCreateRepo();
+		
+		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
+		String data = "test-data";
+		
+		repo.setData(userJID, "test-node", "test-key", data);
+		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
+		Assert.assertEquals(data, repo.getData(userJID, "test-node", "test-key"));
+	}	
 }
