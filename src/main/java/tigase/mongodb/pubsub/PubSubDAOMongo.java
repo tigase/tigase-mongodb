@@ -511,6 +511,20 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 	}
 
 	@Override
+	public void removeService(BareJID serviceJid) throws RepositoryException {
+		try {
+			removeAllFromRootCollection(serviceJid);
+			
+			byte[] jidId = generateId(serviceJid);
+			BasicDBObject crit = new BasicDBObject("jid_id", jidId).append("jid", serviceJid.toString());
+			db.getCollection(PUBSUB_AFFILIATIONS).remove(crit);
+			db.getCollection(PUBSUB_SUBSCRIPTIONS).remove(crit);			
+		} catch (MongoException ex) {
+			throw new RepositoryException("Could not remove service with jid = " + serviceJid, ex);
+		}
+	}
+	
+	@Override
 	public void updateNodeConfig(BareJID serviceJid, ObjectId nodeId, String serializedNodeConfig, ObjectId collectionId) throws RepositoryException {
 		try {			
 			BasicDBObject crit = new BasicDBObject("_id", nodeId);
