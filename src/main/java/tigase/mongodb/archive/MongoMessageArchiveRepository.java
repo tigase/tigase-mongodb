@@ -211,7 +211,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					DBObject dto = cursor.next();
 					String buddy = (String) dto.get("buddy");
 					Date ts = (Date) dto.get("ts");
-					addCollectionToResults(results, criteria, buddy, ts);
+					addCollectionToResults(results, criteria, buddy, ts, null);
 				}
 			}
 			
