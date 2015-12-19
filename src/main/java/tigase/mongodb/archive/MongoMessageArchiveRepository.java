@@ -34,6 +34,8 @@ import com.mongodb.MongoClientURI;
 import java.net.UnknownHostException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -102,6 +104,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 		try {
 			byte[] oid = generateId(owner);
 			byte[] bid = generateId(buddy.getBareJID());
+			byte[] odid = generateId(owner.getDomain());
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
@@ -111,6 +114,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					.append("ts", timestamp).append("hash", hash);
 			
 			BasicDBObject dto = new BasicDBObject("owner", owner.toString()).append("owner_id", oid)
+					.append("owner_domain_id", odid)
 					.append("buddy", buddy.getBareJID().toString()).append("buddy_id", bid)
 					.append("buddy_res", buddy.getResource())
 					// adding date for aggregation
@@ -136,6 +140,20 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 		}
 	}
 
+	@Override
+	public void deleteExpiredMessages(BareJID owner, LocalDateTime before) throws TigaseDBException {
+		try {
+			byte[] odid = generateId(owner.getDomain());
+			long timestamp_long = before.toEpochSecond(ZoneOffset.UTC) * 1000;
+			BasicDBObject crit = new BasicDBObject("owner_domain_id", odid)
+					.append("ts", new BasicDBObject("$lt", new Date(timestamp_long)));
+		
+			db.getCollection(MSGS_COLLECTION).remove(crit);
+		} catch (Exception ex) {
+			throw new TigaseDBException("Cound not remove expired messages", ex);
+		}
+	}	
+	
 	@Override
 	public List<Element> getCollections(BareJID owner, Criteria criteria) throws TigaseDBException {
 		Cursor cursor = null;
@@ -421,6 +439,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			msgs.createIndex(new BasicDBObject("body", "text"));
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("tags", 1));
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1).append("hash", 1));
+			msgs.createIndex(new BasicDBObject("owner_domain_id", 1).append("ts", 1));
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
