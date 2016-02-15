@@ -120,6 +120,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 		try {
 			BasicDBObject crit = new BasicDBObject("hostname", item.getHostname());
 			BasicDBObject dto = new BasicDBObject("password", item.getPassword())
+					.append("secondary", item.getSecondaryHostname())
 					.append("updated", new Date()).append("port", item.getPortNo())
 					.append("cpu_usage", item.getCpuUsage()).append("mem_usage", item.getMemUsage());
 			db.getCollection(CLUSTER_NODES).update(crit, new BasicDBObject("$set", dto), true, false);
@@ -148,6 +149,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 				
 				ClusterRepoItem item = getItemInstance();
 					item.setHostname((String) dto.get("hostname"));
+					item.setSecondaryHostname((String) dto.get("secondary"));
 					item.setPassword((String) dto.get("password"));
 					item.setLastUpdate(((Date) dto.get("updated")).getTime());
 					item.setPort((Integer) dto.get("port"));
@@ -213,6 +215,11 @@ public class ClConMongoRepository extends ClConConfigRepository
 		@Override
 		protected void setPort(int port) {
 			super.setPort(port);
+		}
+
+		@Override
+		protected void setSecondaryHostname( String secondaryHostname ) {
+			super.setSecondaryHostname( secondaryHostname );
 		}
 
 	}
