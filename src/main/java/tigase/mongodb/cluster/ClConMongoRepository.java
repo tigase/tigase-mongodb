@@ -40,10 +40,6 @@ import tigase.db.DBInitException;
 import tigase.db.Repository;
 import tigase.db.RepositoryFactory;
 
-/**
- *
- * @author andrzej
- */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class ClConMongoRepository extends ClConConfigRepository
 				implements ClusterRepoConstants {
@@ -68,15 +64,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 		}
 	}
 	
-	//~--- get methods ----------------------------------------------------------
 
-	/**
-	 * Method description
-	 *
-	 *
-	 * @param defs
-	 * @param params
-	 */
 	@Override
 	public void getDefaults(Map<String, Object> defs, Map<String, Object> params) {
 		super.getDefaults(defs, params);
@@ -127,12 +115,6 @@ public class ClConMongoRepository extends ClConConfigRepository
 
 
 
-	/**
-	 * Method description
-	 *
-	 *
-	 * @param item
-	 */
 	@Override
 	public void storeItem(tigase.cluster.repo.ClusterRepoItem item) {
 		try {
@@ -146,10 +128,6 @@ public class ClConMongoRepository extends ClConConfigRepository
 		}
 	}	
 	
-	/**
-	 * Method description
-	 *
-	 */
 	@Override
 	public void reload() {
 		if ( ( System.currentTimeMillis() - lastReloadTime ) <= ( autoreload_interval * lastReloadTimeFactor ) ){
@@ -192,10 +170,6 @@ public class ClConMongoRepository extends ClConConfigRepository
 		return new ClusterRepoItem();
 	}
 	
-	/**
-	 * Method description
-	 *
-	 */
 	@Override
 	public void store() {
 		// Do nothing everything is written on demand to DB
@@ -210,70 +184,32 @@ public class ClConMongoRepository extends ClConConfigRepository
 		protected void setMemUsage(Double memUsage) {
 			super.setMemUsage(memUsage == null ? 0 : memUsage.floatValue());
 		}		
-		/**
-		 * Method description
-		 *
-		 *
-		 *
-		 * @param cpuUsage
-		 */
+
 		@Override
 		protected void setCpuUsage(float cpuUsage) {
 			super.setCpuUsage(cpuUsage);
 		}
 		
-		/**
-		 * Method description
-		 *
-		 *
-		 *
-		 * @param hostname
-		 */
 		@Override
 		protected void setHostname(String hostname) {
 			super.setHostname(hostname);
 		}
 
-		/**
-		 * Method description
-		 *
-		 *
-		 *
-		 * @param update
-		 */
 		@Override
 		protected void setLastUpdate(long update) {
 			super.setLastUpdate(update);
 		}
 
-		/**
-		 * Method description
-		 *
-		 *
-		 * @param memUsage
-		 */
 		@Override
 		protected void setMemUsage(float memUsage) {
 			super.setMemUsage(memUsage);
 		}
 
-		/**
-		 * Method description
-		 *
-		 *
-		 * @param password
-		 */
 		@Override
 		protected void setPassword(String password) {
 			super.setPassword(password);
 		}
 
-		/**
-		 * Method description
-		 *
-		 *
-		 * @param port
-		 */
 		@Override
 		protected void setPort(int port) {
 			super.setPort(port);
