@@ -49,13 +49,11 @@ import tigase.pubsub.Affiliation;
 import tigase.pubsub.NodeType;
 import tigase.pubsub.PubSubConfig;
 import tigase.pubsub.Subscription;
-import tigase.pubsub.repository.IItems;
-import tigase.pubsub.repository.NodeAffiliations;
-import tigase.pubsub.repository.NodeSubscriptions;
-import tigase.pubsub.repository.PubSubDAO;
-import tigase.pubsub.repository.RepositoryException;
+import tigase.pubsub.repository.*;
+import tigase.pubsub.repository.stateless.NodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
 import tigase.pubsub.repository.stateless.UsersSubscription;
+import tigase.util.TigaseStringprepException;
 import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 
@@ -193,7 +191,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 			}
 			
 			BasicDBObject dto = createCrit(serviceJid, nodeName);
-			dto.append("owner", ownerJid.toString()).append("type", nodeType.name()).append("configuration", serializedNodeConfig);
+			dto.append("owner", ownerJid.toString()).append("type", nodeType.name())
+					.append("configuration", serializedNodeConfig).append("creation_time", new Date());
 			if (collectionId != null) {
 				dto.append("collection", collectionId);
 			}
@@ -366,6 +365,22 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 			return result == null ? null : (ObjectId) result.get("_id");
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not retrieve node id", ex);
+		}
+	}
+
+	@Override
+	public INodeMeta<ObjectId> getNodeMeta(BareJID serviceJid, String nodeName) throws RepositoryException {
+		try {
+			BasicDBObject crit = createCrit(serviceJid, nodeName);
+			DBObject result = db.getCollection(PUBSUB_NODES).findOne(crit, new BasicDBObject());
+			if (result == null)
+				return null;
+
+			AbstractNodeConfig nodeConfig = parseConfig(nodeName, (String) result.get("configuration"));
+			return new NodeMeta((ObjectId)result.get("_id"), nodeConfig,
+					result.get("owner") != null ? BareJID.bareJIDInstance((String) result.get("owner")) : null, (Date) result.get("creation_time"));
+		} catch (MongoException|TigaseStringprepException ex) {
+			throw new RepositoryException("Could not retrieve node metadata", ex);
 		}
 	}
 

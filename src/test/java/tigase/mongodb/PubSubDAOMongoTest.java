@@ -35,15 +35,16 @@ import tigase.pubsub.Affiliation;
 import tigase.pubsub.LeafNodeConfig;
 import tigase.pubsub.NodeType;
 import tigase.pubsub.Subscription;
-import tigase.pubsub.repository.NodeAffiliations;
-import tigase.pubsub.repository.NodeSubscriptions;
-import tigase.pubsub.repository.PubSubDAO;
-import tigase.pubsub.repository.RepositoryException;
+import tigase.pubsub.repository.*;
+import tigase.pubsub.repository.stateless.NodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
 import tigase.pubsub.repository.stateless.UsersSubscription;
 import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 /**
  *
@@ -142,6 +143,17 @@ public class PubSubDAOMongoTest {
 		Arrays.sort(allNodes);
 		Assert.assertNotEquals("Node name not listed in list of all root nodes", -1, Arrays.binarySearch(allNodes, nodeName));
 	}
+
+	@Test
+	public void test6_getNodeMeta() throws RepositoryException {
+		INodeMeta meta = dao.getNodeMeta(serviceJid, nodeName);
+		assertNotNull(meta);
+		Object nodeId = dao.getNodeId(serviceJid, nodeName);
+		assertEquals(nodeId, meta.getNodeId());
+		assertEquals(nodeName, meta.getNodeConfig().getNodeName());
+		assertEquals(senderJid.getBareJID(), meta.getCreator());
+		assertNotNull(meta.getCreationTime());
+	}
 	
 	@Test
 	public void test7_nodeItems() throws RepositoryException {
@@ -188,8 +200,8 @@ public class PubSubDAOMongoTest {
 		Assert.assertNotNull("Not found affiliations for node", nodeAffils);
 		affil = nodeAffils.getSubscriberAffiliation(subscriberJid.getBareJID());
 		Assert.assertEquals("Bad affiliation for user", Affiliation.none, affil.getAffiliation());
-	}	
-	
+	}
+
 	@Test
 	public void test9_nodeRemoval() throws RepositoryException {
 		Object nodeId = dao.getNodeId(serviceJid, nodeName);
