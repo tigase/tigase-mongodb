@@ -120,6 +120,7 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			nodes.createIndex(new BasicDBObject("uid", 1));
 			nodes.createIndex(new BasicDBObject("node", 1));
 			nodes.createIndex(new BasicDBObject("key", 1));
+			nodes.createIndex(new BasicDBObject("uid", 1).append("node", 1).append("key", 1));
 
 			// let's override AuthRepositoryImpl to store password inside objects in tig_users
 			auth = new AuthRepositoryImpl(this) {
