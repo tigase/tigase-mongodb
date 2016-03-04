@@ -103,6 +103,7 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 				nodes = db.getCollection(PUBSUB_NODES);
 			}
 			nodes.createIndex(new BasicDBObject("service_jid_id", 1).append("node_name_id", 1), new BasicDBObject("unique", true));
+			nodes.createIndex(new BasicDBObject("service_jid_id", 1).append("node_name_id", 1).append("collection", 1), new BasicDBObject("unique", true));
 			nodes.createIndex(new BasicDBObject("collection", 1));
 			
 			DBCollection affiliations = null;
@@ -129,7 +130,9 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 			} else {
 				items = db.getCollection(PUBSUB_ITEMS);
 			}
+			items.createIndex(new BasicDBObject("node_id", 1));
 			items.createIndex(new BasicDBObject("node_id", 1).append("item_id", 1), new BasicDBObject("unique", true));
+			items.createIndex(new BasicDBObject("node_id", 1).append("creation_date", 1));
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resourceUri, ex);
 		}
@@ -233,7 +236,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 		try {
 			byte[] serviceJidId = generateId(serviceJid);
 			BasicDBObject crit = new BasicDBObject("service_jid_id", serviceJidId).append("service_jid", serviceJid.toString());
-			List<String> result = db.getCollection(PUBSUB_NODES).distinct("node_name", crit);
+			//List<String> result = db.getCollection(PUBSUB_NODES).distinct("node_name", crit);
+			List<String> result = readAllValuesForField(PUBSUB_NODES, "node_name", crit);
 			return result.toArray(new String[result.size()]);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not retrieve list of all nodes", ex);
@@ -270,7 +274,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 	public String[] getItemsIds(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
 		try {			
 			BasicDBObject crit = new BasicDBObject("node_id", nodeId);
-			List<String> ids = (List<String>) db.getCollection(PUBSUB_ITEMS).distinct("item_id", crit);
+//			List<String> ids = (List<String>) db.getCollection(PUBSUB_ITEMS).distinct("item_id", crit);
+			List<String> ids = readAllValuesForField(PUBSUB_ITEMS, "item_id", crit);
 			return ids.toArray(new String[ids.size()]);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Error while retrieving item ids from repository", ex);
@@ -281,7 +286,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 	public String[] getItemsIdsSince(BareJID serviceJid, ObjectId nodeId, Date since) throws RepositoryException {
 		try {			
 			BasicDBObject crit = new BasicDBObject("node_id", nodeId).append("$gte", new BasicDBObject("creation_date", since));
-			List<String> ids = (List<String>) db.getCollection(PUBSUB_ITEMS).distinct("item_id", crit);
+//			List<String> ids = (List<String>) db.getCollection(PUBSUB_ITEMS).distinct("item_id", crit);
+			List<String> ids = readAllValuesForField(PUBSUB_ITEMS, "item_id", crit);
 			return ids.toArray(new String[ids.size()]);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Error while retrieving item ids since timestamp from repository", ex);
@@ -398,7 +404,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 			} else {
 				crit.append("collection", new BasicDBObject("$exists", false));
 			}
-			List<String> result = db.getCollection(PUBSUB_NODES).distinct("node_name", crit);
+//			List<String> result = db.getCollection(PUBSUB_NODES).distinct("node_name", crit);
+			List<String> result = readAllValuesForField(PUBSUB_NODES, "node_name", crit);
 			return result.toArray(new String[result.size()]);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not retrieve list of all nodes", ex);
@@ -605,6 +612,25 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 			db.getCollection(PUBSUB_ITEMS).update(crit, dto, true, false);	
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not write item to repository", ex);
+		}
+	}
+
+	protected <T> List<T> readAllValuesForField(String collection, String field, DBObject crit) throws MongoException {
+		DBCursor cursor = null;
+		try {
+			cursor = db.getCollection(collection).find(crit, new BasicDBObject(field, 1));
+
+			List<T> result = new ArrayList<>();
+			while (cursor.hasNext()) {
+				DBObject item = cursor.next();
+				T val = (T) item.get(field);
+				result.add(val);
+			}
+
+			return result;
+		} finally {
+			if (cursor != null)
+				cursor.close();
 		}
 	}
 	

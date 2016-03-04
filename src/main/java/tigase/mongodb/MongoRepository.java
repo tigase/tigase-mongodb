@@ -287,7 +287,8 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	public String[] getKeys(BareJID user, String subnode) throws UserNotFoundException, TigaseDBException {
 		try {
 			BasicDBObject crit = createCrit(user, subnode, null);
-			List<String> result = db.getCollection(NODES_COLLECTION).distinct("key", crit);
+			//List<String> result = db.getCollection(NODES_COLLECTION).distinct("key", crit);
+			List<String> result = readAllDistinctValuesForField(NODES_COLLECTION, "key", crit);
 			return result.toArray(new String[result.size()]);
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Problem retrieving keys for " + user
@@ -482,7 +483,8 @@ public class MongoRepository implements AuthRepository, UserRepository {
 			BasicDBObject crit = new BasicDBObject("uid", uid);
 			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode + "/" : "") + "[^/]*");
 			crit.append("node", regex);
-			List<String> result = (List<String>) db.getCollection(NODES_COLLECTION).distinct("node", crit);
+			//List<String> result = (List<String>) db.getCollection(NODES_COLLECTION).distinct("node", crit);
+			List<String> result = readAllDistinctValuesForField(NODES_COLLECTION, "node", crit);
 			List<String> res = new ArrayList<>();
 			for (String node : result) {
 				if (subnode != null) {
@@ -564,5 +566,26 @@ public class MongoRepository implements AuthRepository, UserRepository {
 	public void setUserDisabled(BareJID user, Boolean value) 
 					throws UserNotFoundException, TigaseDBException {
 		throw new TigaseDBException("Feature not supported");
-	}	
+	}
+
+	protected <T> List<T> readAllDistinctValuesForField(String collection, String field, DBObject crit) throws MongoException {
+		DBCursor cursor = null;
+		try {
+			cursor = db.getCollection(collection).find(crit, new BasicDBObject(field, 1));
+
+			List<T> result = new ArrayList<>();
+			while (cursor.hasNext()) {
+				DBObject item = cursor.next();
+				T val = (T) item.get(field);
+				if (!result.contains(val))
+					result.add(val);
+			}
+
+			return result;
+		} finally {
+			if (cursor != null)
+				cursor.close();
+		}
+	}
+
 }
