@@ -2,7 +2,7 @@
  * ClConMongoRepository.java
  *
  * Tigase Jabber/XMPP Server - MongoDB support
- * Copyright (C) 2004-2014 "Tigase, Inc." <office@tigase.com>
+ * Copyright (C) 2004-2016 "Tigase, Inc." <office@tigase.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -21,38 +21,44 @@
  */
 package tigase.mongodb.cluster;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
-import java.sql.ResultSet;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.UpdateOptions;
+import org.bson.Document;
+import tigase.cluster.repo.ClConConfigRepository;
+import tigase.cluster.repo.ClusterRepoConstants;
+import tigase.db.DBInitException;
+import tigase.db.Repository;
+import tigase.db.RepositoryFactory;
+
 import java.util.Date;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import tigase.cluster.repo.ClConConfigRepository;
-import tigase.cluster.repo.ClusterRepoConstants;
-import static tigase.cluster.repo.ClusterRepoConstants.REPO_URI_PROP_KEY;
-import tigase.db.DBInitException;
-import tigase.db.Repository;
-import tigase.db.RepositoryFactory;
+
+import static tigase.mongodb.Helper.collectionExists;
 
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class ClConMongoRepository extends ClConConfigRepository
 				implements ClusterRepoConstants {
 
 	private static final Logger log = Logger.getLogger(ClConMongoRepository.class.getCanonicalName());
-	
+
+	private static final int DEF_BATCH_SIZE = 100;
+
 	private static final String CLUSTER_NODES = "cluster_nodes";
 	
 	private String resourceUri;
 	
 	private MongoClient mongo;
-	private DB db;
-	
+	private MongoDatabase db;
+	private MongoCollection<Document> clusterNodes;
+
+	private int batchSize = DEF_BATCH_SIZE;
+
 	@Override
 	public void destroy() {
 		// This implementation of ClConConfigRepository is using shared connection
@@ -84,16 +90,25 @@ public class ClConMongoRepository extends ClConConfigRepository
 					throws DBInitException {
 		super.initRepository(resource_uri, params);	
 		try {
+			if (params != null) {
+				if (params.containsKey("batch-size")) {
+					batchSize = Integer.parseInt(params.get("batch-size"));
+				} else {
+					batchSize = DEF_BATCH_SIZE;
+				}
+			}
+
 			resourceUri = resource_uri;
 			MongoClientURI uri = new MongoClientURI(resource_uri);
 			//uri.get
 			mongo = new MongoClient(uri);
-			db = mongo.getDB(uri.getDatabase());
-			
-			DBCollection clusterNodes = db.collectionExists(CLUSTER_NODES)
-					? db.getCollection(CLUSTER_NODES)
-					: db.createCollection(CLUSTER_NODES, new BasicDBObject());
-			clusterNodes.createIndex(new BasicDBObject("hostname", 1));
+			db = mongo.getDatabase(uri.getDatabase());
+
+			if (!collectionExists(db, CLUSTER_NODES)) {
+				db.createCollection(CLUSTER_NODES);
+			}
+			clusterNodes = db.getCollection(CLUSTER_NODES);
+			clusterNodes.createIndex(new Document("hostname", 1));
 			
 		} catch (Exception ex) {
 			throw new DBInitException("Could not initialize MongoDB repository", ex);
@@ -105,8 +120,8 @@ public class ClConMongoRepository extends ClConConfigRepository
 		super.removeItem( key );
 
 		try {
-			BasicDBObject crit = new BasicDBObject("hostname", key);
-			db.getCollection(CLUSTER_NODES).remove(crit);
+			Document crit = new Document("hostname", key);
+			db.getCollection(CLUSTER_NODES).deleteMany(crit);
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem removing element from DB: ", ex);
 		}
@@ -118,12 +133,12 @@ public class ClConMongoRepository extends ClConConfigRepository
 	@Override
 	public void storeItem(tigase.cluster.repo.ClusterRepoItem item) {
 		try {
-			BasicDBObject crit = new BasicDBObject("hostname", item.getHostname());
-			BasicDBObject dto = new BasicDBObject("password", item.getPassword())
+			Document crit = new Document("hostname", item.getHostname());
+			Document dto = new Document("password", item.getPassword())
 					.append("secondary", item.getSecondaryHostname())
 					.append("updated", new Date()).append("port", item.getPortNo())
 					.append("cpu_usage", item.getCpuUsage()).append("mem_usage", item.getMemUsage());
-			db.getCollection(CLUSTER_NODES).update(crit, new BasicDBObject("$set", dto), true, false);
+			db.getCollection(CLUSTER_NODES).updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem setting element to DB: ", ex);
 		}
@@ -140,12 +155,10 @@ public class ClConMongoRepository extends ClConConfigRepository
 		lastReloadTime = System.currentTimeMillis();
 
 		super.reload();
-		DBCursor cursor = null;
 		try {
-			cursor = db.getCollection(CLUSTER_NODES).find();
+			FindIterable<Document> cursor = db.getCollection(CLUSTER_NODES).find().batchSize(batchSize);
 			
-			while (cursor.hasNext()) {
-				DBObject dto = cursor.next();
+			for (Document dto : cursor) {
 				
 				ClusterRepoItem item = getItemInstance();
 					item.setHostname((String) dto.get("hostname"));
@@ -160,10 +173,6 @@ public class ClConMongoRepository extends ClConConfigRepository
 			
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem getting elements from DB: ", ex);
-		} finally {
-			if (cursor != null) {
-				cursor.close();
-			}
 		}
 	}
 	

@@ -2,7 +2,7 @@
  * MongoHistoryProvider.java
  *
  * Tigase Jabber/XMPP Server - MongoDB support
- * Copyright (C) 2004-2014 "Tigase, Inc." <office@tigase.com>
+ * Copyright (C) 2004-2016 "Tigase, Inc." <office@tigase.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -21,22 +21,11 @@
  */
 package tigase.mongodb.muc;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
-import java.net.UnknownHostException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.logging.Level;
+import com.mongodb.*;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import org.bson.Document;
 import tigase.component.PacketWriter;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
@@ -51,6 +40,14 @@ import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
+import java.util.logging.Level;
+
+import static tigase.mongodb.Helper.collectionExists;
+
+
 /**
  *
  * @author andrzej
@@ -58,12 +55,16 @@ import tigase.xmpp.JID;
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class MongoHistoryProvider extends AbstractHistoryProvider {
 
+	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "muc_history";
 	
 	private String resourceUri;
 	private MongoClient mongo;
-	private DB db;
+	private MongoDatabase db;
+	private MongoCollection<Document> historyCollection;
+
+	private int batchSize = DEF_BATCH_SIZE;
 	
 	private byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
@@ -86,7 +87,7 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 	public void addMessage(Room room, Element message, String body, JID senderJid, String senderNickname, Date time) {
 		try {
 			byte[] rid = generateId(room.getRoomJID());
-			BasicDBObject dto = new BasicDBObject("room_jid_id", rid).append("room_jid", room.getRoomJID().toString())
+			Document dto = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString())
 					.append("event_type", 1)
 					.append("sender_jid", senderJid.toString()).append("sender_nickname", senderNickname)
 					.append("body", body).append("public_event", room.getConfig().isLoggingEnabled());
@@ -96,7 +97,7 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 			if (message != null) {
 				dto.append("msg", message.toString());
 			}
-			db.getCollection(HISTORY_COLLECTION).insert(dto);
+			historyCollection.insertOne(dto);
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Can't add MUC message to database", ex);
 			throw new RuntimeException(ex);
@@ -121,8 +122,7 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 		boolean addRealJids = room.getConfig().getRoomAnonymity() == RoomConfig.Anonymity.nonanonymous
 				|| room.getConfig().getRoomAnonymity() == RoomConfig.Anonymity.semianonymous
 				&& (recipientAffiliation == Affiliation.owner || recipientAffiliation == Affiliation.admin);
-		
-		DBCursor cursor = null;
+
 		try {
 			byte[] rid = generateId(room.getRoomJID());
 			int maxMessages = room.getConfig().getMaxHistory();
@@ -131,22 +131,20 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 				since = new Date(new Date().getTime() - seconds * 1000);
 			}
 			
-			BasicDBObject crit = new BasicDBObject("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
+			Document crit = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
 			if (since != null) {
-				crit.append("timestamp", new BasicDBObject("$gte", since));
-				BasicDBObject order = new BasicDBObject("timestamp", 1);
-				cursor = db.getCollection(HISTORY_COLLECTION).find(crit).limit(limit).sort(order);
-				while (cursor.hasNext()) {
-					DBObject dto = cursor.next();
+				crit.append("timestamp", new Document("$gte", since));
+				Document order = new Document("timestamp", 1);
+				FindIterable<Document> cursor = historyCollection.find(crit).batchSize(batchSize).limit(limit).sort(order);
+				for (Document dto : cursor) {
 					Packet packet = createMessage(room.getRoomJID(), senderJID, dto, addRealJids);
 					writer.write(packet);
 				}
 			} else {
-				BasicDBObject order = new BasicDBObject("timestamp", -1);
-				cursor = db.getCollection(HISTORY_COLLECTION).find(crit).limit(limit).sort(order);
+				Document order = new Document("timestamp", -1);
+				FindIterable<Document> cursor = historyCollection.find(crit).batchSize(batchSize).limit(limit).sort(order);
 				List<Packet> results = new ArrayList<Packet>();
-				while (cursor.hasNext()) {
-					DBObject dto = cursor.next();
+				for (Document dto : cursor) {
 					Packet packet = createMessage(room.getRoomJID(), senderJID, dto, addRealJids);
 					results.add(packet);
 				}
@@ -157,21 +155,26 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 			if (log.isLoggable(Level.SEVERE))
 				log.log(Level.SEVERE, "Can't get history", ex);
 			throw new RuntimeException(ex);
-		} finally {
-			if (cursor != null) {
-				cursor.close();
-			}
 		}
 	}
 
 	@Override
 	public void init(Map<String, Object> props) {
-		DBCollection history = !db.collectionExists(HISTORY_COLLECTION)
-				? db.createCollection(HISTORY_COLLECTION, new BasicDBObject())
-				: db.getCollection(HISTORY_COLLECTION);
+		if (props != null) {
+			if (props.containsKey("batch-size")) {
+				batchSize = Integer.parseInt((String) props.get("batch-size"));
+			} else {
+				batchSize = DEF_BATCH_SIZE;
+			}
+		}
+
+		if (!collectionExists(db, HISTORY_COLLECTION)) {
+			db.createCollection(HISTORY_COLLECTION);
+		}
+		historyCollection = db.getCollection(HISTORY_COLLECTION);
 		
-		history.createIndex(new BasicDBObject("room_jid_id", 1));
-		history.createIndex(new BasicDBObject("room_jid_id", 1).append("timestamp", 1));
+		historyCollection.createIndex(new Document("room_jid_id", 1));
+		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
 	}
 
 	@Override
@@ -183,8 +186,8 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 	public void removeHistory(Room room) {
 		try {
 			byte[] rid = generateId(room.getRoomJID());
-			BasicDBObject crit = new BasicDBObject("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
-			db.getCollection(HISTORY_COLLECTION).remove(crit);
+			Document crit = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
+			db.getCollection(HISTORY_COLLECTION).deleteMany(crit);
 		} catch (Exception ex) {
 			if (log.isLoggable(Level.SEVERE))
 				log.log(Level.SEVERE, "Can't remove history", ex);
@@ -198,13 +201,14 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 			resourceUri = resource_uri;
 			MongoClientURI uri = new MongoClientURI(resource_uri);
 			mongo = new MongoClient(uri);
-			db = mongo.getDB(uri.getDatabase());
-		} catch (UnknownHostException ex) {
+			db = mongo.getDatabase(uri.getDatabase());
+			init((Map) params);
+		} catch (MongoException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
 		}
 	}
 	
-	private Packet createMessage(BareJID roomJid, JID senderJID, DBObject dto, boolean addRealJids) throws TigaseStringprepException {
+	private Packet createMessage(BareJID roomJid, JID senderJID, Document dto, boolean addRealJids) throws TigaseStringprepException {
 		String sender_nickname = (String) dto.get("sender_nickname");
 		String msg = (String) dto.get("msg");
 		String body = (String) dto.get("body");

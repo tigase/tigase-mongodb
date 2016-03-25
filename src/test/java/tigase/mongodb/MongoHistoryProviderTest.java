@@ -21,15 +21,7 @@
  */
 package tigase.mongodb;
 
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.*;
 import tigase.component.PacketWriter;
 import tigase.component.responses.AsyncCallback;
 import tigase.db.DBInitException;
@@ -39,6 +31,11 @@ import tigase.muc.RoomConfig;
 import tigase.server.Packet;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
+
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  *

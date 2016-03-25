@@ -21,20 +21,13 @@
  */
 package tigase.mongodb;
 
+import org.junit.*;
 import tigase.db.DBInitException;
 import tigase.db.TigaseDBException;
-
+import tigase.util.TigaseStringprepException;
 import tigase.xmpp.BareJID;
 
-import tigase.util.TigaseStringprepException;
-
 import java.util.HashMap;
-
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
 
 /**
  *

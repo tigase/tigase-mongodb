@@ -21,21 +21,8 @@
  */
 package tigase.mongodb;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.TimeZone;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.FixMethodOrder;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.runners.MethodSorters;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Ignore;
 import tigase.archive.AbstractCriteria;
 import tigase.archive.db.MessageArchiveRepository;
 import tigase.db.DBInitException;
@@ -44,6 +31,9 @@ import tigase.mongodb.archive.MongoMessageArchiveRepository;
 import tigase.xml.Element;
 import tigase.xmpp.JID;
 import tigase.xmpp.StanzaType;
+
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 /**
  *

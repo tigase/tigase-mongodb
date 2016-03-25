@@ -1,6 +1,6 @@
 /*
  * Tigase Jabber/XMPP Server
- * Copyright (C) 2004-2014 "Tigase, Inc." <office@tigase.com>
+ * Copyright (C) 2004-2016 "Tigase, Inc." <office@tigase.com>
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -18,9 +18,13 @@
  */
 package tigase.mongo.stats;
 
+import com.mongodb.MongoClient;
+import com.mongodb.MongoClientURI;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import org.bson.Document;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
-
 import tigase.stats.CounterDataLogger;
 
 import java.sql.SQLException;
@@ -29,11 +33,7 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import static tigase.mongodb.Helper.collectionExists;
 
 /**
  *
@@ -47,14 +47,14 @@ public class CounterDataLoggerMongo extends CounterDataLogger {
 	private String resourceUri;
 
 	private MongoClient mongo;
-	private DB db;
-	private DBCollection tigaseStatsLogCollection;
+	private MongoDatabase db;
+	private MongoCollection<Document> tigaseStatsLogCollection;
 
 	@Override
 	public void addStatsLogEntry( float cpu_usage, float mem_usage, long uptime, int vhosts, long sm_packets, long muc_packets, long pubsub_packets, long c2s_packets, long s2s_packets, long ext_packets, long presences, long messages, long iqs, long registered, int c2s_conns, int s2s_conns, int bosh_conns ) {
 
 		try {
-			BasicDBObject dto = new BasicDBObject()
+			Document dto = new Document()
 					.append( "ts", new Date() )
 					.append( HOSTNAME_COL, defaultHostname )
 					.append( CPU_USAGE_COL, cpu_usage )
@@ -74,7 +74,7 @@ public class CounterDataLoggerMongo extends CounterDataLogger {
 					.append( C2S_CONNS_COL, c2s_conns )
 					.append( S2S_CONNS_COL, s2s_conns )
 					.append( BOSH_CONNS_COL, bosh_conns );
-			tigaseStatsLogCollection.insert( dto );
+			tigaseStatsLogCollection.insertOne( dto );
 		} catch ( Exception ex ) {
 			log.log( Level.WARNING, "Problem setting element to DB: ", ex );
 		}
@@ -91,11 +91,12 @@ public class CounterDataLoggerMongo extends CounterDataLogger {
 			resourceUri = conn_str;
 			MongoClientURI uri = new MongoClientURI( resourceUri );
 			mongo = new MongoClient( uri );
-			db = mongo.getDB( uri.getDatabase() );
+			db = mongo.getDatabase( uri.getDatabase() );
 
-			tigaseStatsLogCollection = db.collectionExists( STATS_TABLE )
-																 ? db.getCollection( STATS_TABLE )
-																 : db.createCollection( STATS_TABLE, new BasicDBObject() );
+			if (!collectionExists( db, STATS_TABLE )) {
+				db.createCollection( STATS_TABLE );
+			}
+			tigaseStatsLogCollection = db.getCollection( STATS_TABLE );
 
 		} catch ( Exception ex ) {
 			throw new DBInitException( "Could not initialize MongoDB repository", ex );

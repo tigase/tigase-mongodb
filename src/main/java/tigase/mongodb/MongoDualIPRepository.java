@@ -1,6 +1,6 @@
 /*
  * Tigase Jabber/XMPP Server
- * Copyright (C) 2004-2015 "Tigase, Inc." <office@tigase.com>
+ * Copyright (C) 2004-2016 "Tigase, Inc." <office@tigase.com>
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -18,33 +18,27 @@
  */
 package tigase.mongodb;
 
+import com.mongodb.BasicDBObject;
+import com.mongodb.MongoClient;
+import com.mongodb.MongoClientURI;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import org.bson.Document;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
 import tigase.db.RepositoryFactory;
-
 import tigase.server.xmppclient.SeeOtherHostDualIP.DualIPRepository;
-
+import tigase.util.TigaseStringprepException;
 import tigase.xmpp.BareJID;
 
-import tigase.mongodb.cluster.ClConMongoRepository;
-import tigase.util.TigaseStringprepException;
-
 import java.sql.SQLException;
-import java.util.Date;
 import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
-
 import static tigase.cluster.repo.ClusterRepoConstants.REPO_URI_PROP_KEY;
+import static tigase.mongodb.Helper.collectionExists;
 
 /**
  *
@@ -60,7 +54,8 @@ public class MongoDualIPRepository implements DualIPRepository {
 	private String resourceUri;
 
 	private MongoClient mongo;
-	private DB db;
+	private MongoDatabase db;
+	private MongoCollection<Document> clusterNodes;
 
 	@Override
 	public void getDefaults( Map<String, Object> defs, Map<String, Object> params ) {
@@ -81,11 +76,12 @@ public class MongoDualIPRepository implements DualIPRepository {
 			MongoClientURI uri = new MongoClientURI( resource_uri );
 			//uri.get
 			mongo = new MongoClient( uri );
-			db = mongo.getDB( uri.getDatabase() );
+			db = mongo.getDatabase( uri.getDatabase() );
 
-			DBCollection clusterNodes = db.collectionExists( CLUSTER_NODES )
-																	? db.getCollection( CLUSTER_NODES )
-																	: db.createCollection( CLUSTER_NODES, new BasicDBObject() );
+			if (!collectionExists(db, CLUSTER_NODES)) {
+				db.createCollection(CLUSTER_NODES);
+			}
+			clusterNodes = db.getCollection( CLUSTER_NODES );
 			clusterNodes.createIndex( new BasicDBObject( "hostname", 1 ) );
 
 		} catch ( Exception ex ) {
@@ -99,10 +95,8 @@ public class MongoDualIPRepository implements DualIPRepository {
 
 		Map<BareJID, BareJID> result = new ConcurrentSkipListMap<BareJID, BareJID>();
 
-		try (DBCursor cursor = db.getCollection( CLUSTER_NODES ).find()) {
-
-			while ( cursor.hasNext() ) {
-				DBObject dto = cursor.next();
+		try {
+			for ( Document dto : clusterNodes.find().batchSize(100) ) {
 
 				String user_jid = (String) dto.get( HOSTNAME_ID );
 				String node_jid = (String) dto.get( SECONDARY_HOSTNAME_ID );

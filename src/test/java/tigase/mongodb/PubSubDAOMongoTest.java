@@ -21,27 +21,23 @@
  */
 package tigase.mongodb;
 
-import java.util.Arrays;
-import java.util.Map;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.FixMethodOrder;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.runners.MethodSorters;
+import tigase.component.exceptions.RepositoryException;
 import tigase.mongodb.pubsub.PubSubDAOMongo;
 import tigase.pubsub.Affiliation;
 import tigase.pubsub.LeafNodeConfig;
 import tigase.pubsub.NodeType;
 import tigase.pubsub.Subscription;
 import tigase.pubsub.repository.*;
-import tigase.pubsub.repository.stateless.NodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
 import tigase.pubsub.repository.stateless.UsersSubscription;
 import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
+
+import java.util.Arrays;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
