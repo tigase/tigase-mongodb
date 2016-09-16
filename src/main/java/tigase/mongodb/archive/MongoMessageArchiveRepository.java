@@ -21,30 +21,8 @@
  */
 package tigase.mongodb.archive;
 
-import com.mongodb.AggregationOptions;
+import com.mongodb.*;
 import com.mongodb.AggregationOptions.OutputMode;
-import com.mongodb.BasicDBObject;
-import com.mongodb.Cursor;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
-import java.net.UnknownHostException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.regex.Pattern;
 import tigase.archive.AbstractCriteria;
 import tigase.archive.db.AbstractMessageArchiveRepository;
 import tigase.db.DBInitException;
@@ -58,6 +36,16 @@ import tigase.xml.SingletonFactory;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 import tigase.xmpp.RSM;
+
+import java.net.UnknownHostException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  *
@@ -84,7 +72,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	private static byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.toString().getBytes());
+			return md.digest(user.toString().toLowerCase().getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
