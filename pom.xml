@@ -15,6 +15,8 @@
 		<sign-storepass>storepass</sign-storepass>
 		<sign-keypass>keypass</sign-keypass>
 		<sign-skip>true</sign-skip>
+		<verbose-log>false</verbose-log>
+		<tsa>${tsa-uri}</tsa>
 	</properties>
 
 	<developers>
@@ -38,7 +40,7 @@
 		<developerConnection>scm:git:https://repository.tigase.org/git/tigase-mongodb.git</developerConnection>
 		<url>https://projects.tigase.org/projects/tigase-mongodb/repository</url>
 	  <tag>HEAD</tag>
-  </scm>
+  	</scm>
 
 	<organization>
 		<name>"Tigase, Inc."</name>
@@ -187,7 +189,7 @@
 					</includes>
 					<processMainArtifact>false</processMainArtifact>
 					<processAttachedArtifacts>false</processAttachedArtifacts>
-					<tsa>http://timestamp.comodoca.com/rfc3161</tsa>
+					<tsa>${tsa-uri}</tsa>
 					<skip>${sign-skip}</skip>
 
 					<keystore>${sign-keystore}</keystore>
@@ -224,7 +226,7 @@
 					<alias>${sign-alias}</alias>
 					<storepass>${sign-storepass}</storepass>
 					<keypass>${sign-keypass}</keypass>
-					<!--<verbose>true</verbose>-->
+					<verbose>${verbose-log}</verbose>
 				</configuration>
 			</plugin>			
 		</plugins>

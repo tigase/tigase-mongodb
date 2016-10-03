@@ -25,12 +25,10 @@ import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
 import com.mongodb.client.AggregateIterable;
-import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
-import tigase.archive.AbstractCriteria;
 import tigase.archive.db.AbstractMessageArchiveRepository;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
@@ -85,7 +83,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	private static byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.toString().getBytes());
+			return md.digest(user.toString().toLowerCase().getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
