@@ -21,15 +21,15 @@
  */
 package tigase.mongodb.muc;
 
-import com.mongodb.*;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import tigase.component.PacketWriter;
-import tigase.db.DBInitException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.kernel.beans.config.ConfigField;
+import tigase.mongodb.MongoDataSource;
 import tigase.muc.Affiliation;
 import tigase.muc.Room;
 import tigase.muc.RoomConfig;
@@ -42,7 +42,10 @@ import tigase.xmpp.JID;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
 import java.util.logging.Level;
 
 import static tigase.mongodb.Helper.collectionExists;
@@ -53,17 +56,16 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class MongoHistoryProvider extends AbstractHistoryProvider {
+public class MongoHistoryProvider extends AbstractHistoryProvider<MongoDataSource> {
 
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "muc_history";
 	
-	private String resourceUri;
-	private MongoClient mongo;
 	private MongoDatabase db;
 	private MongoCollection<Document> historyCollection;
 
+	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 	
 	private byte[] generateId(BareJID user) throws TigaseDBException {
@@ -107,13 +109,9 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 	@Override
 	public void addSubjectChange(Room room, Element message, String subject, JID senderJid, String senderNickname, Date time) {
 	}
-	
+
 	@Override
 	public void destroy() {
-		if (mongo != null) {
-			// if we have instance of MongoClient then close it and release resources
-			mongo.close();
-		}
 	}
 
 	@Override
@@ -159,26 +157,7 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 	}
 
 	@Override
-	public void init(Map<String, Object> props) {
-		if (props != null) {
-			if (props.containsKey("batch-size")) {
-				batchSize = Integer.parseInt((String) props.get("batch-size"));
-			} else {
-				batchSize = DEF_BATCH_SIZE;
-			}
-		}
-
-		if (!collectionExists(db, HISTORY_COLLECTION)) {
-			db.createCollection(HISTORY_COLLECTION);
-		}
-		historyCollection = db.getCollection(HISTORY_COLLECTION);
-		
-		historyCollection.createIndex(new Document("room_jid_id", 1));
-		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
-	}
-
-	@Override
-	public boolean isPersistent() {
+	public boolean isPersistent(Room room) {
 		return true;
 	}
 
@@ -196,18 +175,18 @@ public class MongoHistoryProvider extends AbstractHistoryProvider {
 	}
 
 	@Override
-	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
-		try {
-			resourceUri = resource_uri;
-			MongoClientURI uri = new MongoClientURI(resource_uri);
-			mongo = new MongoClient(uri);
-			db = mongo.getDatabase(uri.getDatabase());
-			init((Map) params);
-		} catch (MongoException ex) {
-			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
+	public void setDataSource(MongoDataSource dataSource) {
+		db = dataSource.getDatabase();
+
+		if (!collectionExists(db, HISTORY_COLLECTION)) {
+			db.createCollection(HISTORY_COLLECTION);
 		}
+		historyCollection = db.getCollection(HISTORY_COLLECTION);
+
+		historyCollection.createIndex(new Document("room_jid_id", 1));
+		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
 	}
-	
+
 	private Packet createMessage(BareJID roomJid, JID senderJID, Document dto, boolean addRealJids) throws TigaseStringprepException {
 		String sender_nickname = (String) dto.get("sender_nickname");
 		String msg = (String) dto.get("msg");

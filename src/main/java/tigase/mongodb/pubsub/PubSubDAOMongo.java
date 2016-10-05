@@ -21,8 +21,6 @@
  */
 package tigase.mongodb.pubsub;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
@@ -32,8 +30,9 @@ import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import tigase.component.exceptions.RepositoryException;
-import tigase.db.DBInitException;
 import tigase.db.Repository;
+import tigase.kernel.beans.config.ConfigField;
+import tigase.mongodb.MongoDataSource;
 import tigase.pubsub.AbstractNodeConfig;
 import tigase.pubsub.Affiliation;
 import tigase.pubsub.NodeType;
@@ -58,7 +57,7 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
+public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> {
 	
 	private static final String JID_HASH_ALG = "SHA-256";
 
@@ -70,9 +69,7 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 	private static final String PUBSUB_SERVICE_JIDS = "tig_pubsub_service_jids";
 	private static final String PUBSUB_SUBSCRIPTIONS = "tig_pubsub_subscriptions";
 
-	private MongoClient mongo;
 	private MongoDatabase db;
-	private String resourceUri;
 
 	private MongoCollection<Document> serviceJidsCollection;
 	private MongoCollection<Document> subscriptionsCollection;
@@ -80,70 +77,55 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId> {
 	private MongoCollection<Document> itemsCollecton;
 	private MongoCollection<Document> affiliationsCollection;
 
+	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 
 	public PubSubDAOMongo() {
 	}
 
-	@Override
-	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
-		this.resourceUri = resource_uri;
-		try {
-			if (params != null) {
-				if (params.containsKey("batch-size")) {
-					batchSize = Integer.parseInt(params.get("batch-size"));
-				} else {
-					batchSize = DEF_BATCH_SIZE;
-				}
-			}
-			MongoClientURI uri = new MongoClientURI(resourceUri);
-			//uri.get
-			mongo = new MongoClient(uri);
-			db = mongo.getDatabase(uri.getDatabase());
+	public void setDataSource(MongoDataSource dataSource) {
+		db = dataSource.getDatabase();
 
-			if (!collectionExists(db, PUBSUB_SERVICE_JIDS)) {
-				db.createCollection(PUBSUB_SERVICE_JIDS);
-			}
-			serviceJidsCollection = db.getCollection(PUBSUB_SERVICE_JIDS);
-
-			indexCreateOrReplace(serviceJidsCollection, new Document("service_jid", 1), new IndexOptions().unique(true));
-
-			if (!collectionExists(db, PUBSUB_NODES)) {
-				db.createCollection(PUBSUB_NODES);
-			}
-			nodesCollection = db.getCollection(PUBSUB_NODES);
-
-			nodesCollection.createIndex(new Document("service_jid_id", 1).append("node_name_id", 1), new IndexOptions().unique(true));
-			nodesCollection.createIndex(new Document("service_jid_id", 1).append("node_name_id", 1).append("collection", 1), new IndexOptions().unique(true));
-			nodesCollection.createIndex(new Document("collection", 1));
-
-			if (!collectionExists(db, PUBSUB_AFFILIATIONS)) {
-				db.createCollection(PUBSUB_AFFILIATIONS);
-			}
-			affiliationsCollection = db.getCollection(PUBSUB_AFFILIATIONS);
-
-			affiliationsCollection.createIndex(new Document("node_id", 1));
-			affiliationsCollection.createIndex(new Document("node_id", 1).append("jid_id", 1), new IndexOptions().unique(true));
-			
-			if (!collectionExists(db, PUBSUB_SUBSCRIPTIONS)) {
-				db.createCollection(PUBSUB_SUBSCRIPTIONS);
-			}
-			subscriptionsCollection = db.getCollection(PUBSUB_SUBSCRIPTIONS);
-
-			subscriptionsCollection.createIndex(new Document("node_id", 1));
-			subscriptionsCollection.createIndex(new Document("node_id", 1).append("jid_id", 1), new IndexOptions().unique(true));
-			
-			if (!collectionExists(db, PUBSUB_ITEMS)) {
-				db.createCollection(PUBSUB_ITEMS);
-			}
-			itemsCollecton = db.getCollection(PUBSUB_ITEMS);
-
-			itemsCollecton.createIndex(new Document("node_id", 1));
-			itemsCollecton.createIndex(new Document("node_id", 1).append("item_id", 1), new IndexOptions().unique(true));
-			itemsCollecton.createIndex(new Document("node_id", 1).append("creation_date", 1));
-		} catch (MongoException ex) {
-			throw new DBInitException("Could not connect to MongoDB server using URI = " + resourceUri + ", " + ex.getMessage(), ex);
+		if (!collectionExists(db, PUBSUB_SERVICE_JIDS)) {
+			db.createCollection(PUBSUB_SERVICE_JIDS);
 		}
+		serviceJidsCollection = db.getCollection(PUBSUB_SERVICE_JIDS);
+
+		indexCreateOrReplace(serviceJidsCollection, new Document("service_jid", 1), new IndexOptions().unique(true));
+
+		if (!collectionExists(db, PUBSUB_NODES)) {
+			db.createCollection(PUBSUB_NODES);
+		}
+		nodesCollection = db.getCollection(PUBSUB_NODES);
+
+		nodesCollection.createIndex(new Document("service_jid_id", 1).append("node_name_id", 1), new IndexOptions().unique(true));
+		nodesCollection.createIndex(new Document("service_jid_id", 1).append("node_name_id", 1).append("collection", 1), new IndexOptions().unique(true));
+		nodesCollection.createIndex(new Document("collection", 1));
+
+		if (!collectionExists(db, PUBSUB_AFFILIATIONS)) {
+			db.createCollection(PUBSUB_AFFILIATIONS);
+		}
+		affiliationsCollection = db.getCollection(PUBSUB_AFFILIATIONS);
+
+		affiliationsCollection.createIndex(new Document("node_id", 1));
+		affiliationsCollection.createIndex(new Document("node_id", 1).append("jid_id", 1), new IndexOptions().unique(true));
+
+		if (!collectionExists(db, PUBSUB_SUBSCRIPTIONS)) {
+			db.createCollection(PUBSUB_SUBSCRIPTIONS);
+		}
+		subscriptionsCollection = db.getCollection(PUBSUB_SUBSCRIPTIONS);
+
+		subscriptionsCollection.createIndex(new Document("node_id", 1));
+		subscriptionsCollection.createIndex(new Document("node_id", 1).append("jid_id", 1), new IndexOptions().unique(true));
+
+		if (!collectionExists(db, PUBSUB_ITEMS)) {
+			db.createCollection(PUBSUB_ITEMS);
+		}
+		itemsCollecton = db.getCollection(PUBSUB_ITEMS);
+
+		itemsCollecton.createIndex(new Document("node_id", 1));
+		itemsCollecton.createIndex(new Document("node_id", 1).append("item_id", 1), new IndexOptions().unique(true));
+		itemsCollecton.createIndex(new Document("node_id", 1).append("creation_date", 1));
 	}
 
 	private byte[] generateId(BareJID user) throws RepositoryException {

@@ -22,8 +22,12 @@
 package tigase.mongodb;
 
 import org.junit.*;
+import org.junit.rules.TestRule;
+import org.junit.runner.Description;
 import org.junit.runners.MethodSorters;
+import org.junit.runners.model.Statement;
 import tigase.component.exceptions.RepositoryException;
+import tigase.db.DBInitException;
 import tigase.mongodb.pubsub.PubSubDAOMongo;
 import tigase.pubsub.Affiliation;
 import tigase.pubsub.LeafNodeConfig;
@@ -37,6 +41,7 @@ import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
@@ -46,10 +51,27 @@ import static org.junit.Assert.assertNotNull;
  *
  * @author andrzej
  */
-@Ignore
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class PubSubDAOMongoTest {
-	
+
+	protected static String uri = System.getProperty("testDbUri");
+
+	@ClassRule
+	public static TestRule rule = new TestRule() {
+		@Override
+		public Statement apply(Statement stmnt, Description d) {
+			if (uri == null) {
+				return new Statement() {
+					@Override
+					public void evaluate() throws Throwable {
+						Assume.assumeTrue("Ignored due to not passed DB URI!", false);
+					}
+				};
+			}
+			return stmnt;
+		}
+	};
+
 	private PubSubDAO dao;
 	
 	private String nodeName = "test-node";
@@ -58,9 +80,11 @@ public class PubSubDAOMongoTest {
 	private JID subscriberJid = JID.jidInstanceNS("subscriber@tigase/tigase-1");
 	
 	@Before
-	public void setup() throws RepositoryException {
+	public void setup() throws RepositoryException, DBInitException {
+		MongoDataSource dataSource = new MongoDataSource();
+		dataSource.initRepository(uri, new HashMap<>());
 		dao = new PubSubDAOMongo();
-		dao.init("mongodb://localhost/tigase_junit", null, null);
+		dao.setDataSource(dataSource);
 	}
 	
 	@After

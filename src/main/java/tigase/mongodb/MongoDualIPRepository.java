@@ -19,14 +19,10 @@
 package tigase.mongodb;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
-import tigase.db.DBInitException;
 import tigase.db.Repository;
-import tigase.db.RepositoryFactory;
 import tigase.server.xmppclient.SeeOtherHostDualIP.DualIPRepository;
 import tigase.util.TigaseStringprepException;
 import tigase.xmpp.BareJID;
@@ -37,7 +33,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static tigase.cluster.repo.ClusterRepoConstants.REPO_URI_PROP_KEY;
 import static tigase.mongodb.Helper.collectionExists;
 
 /**
@@ -45,49 +40,24 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author Wojtek
  */
 @Repository.Meta(supportedUris = { "mongodb:.*" })
-public class MongoDualIPRepository implements DualIPRepository {
+public class MongoDualIPRepository implements DualIPRepository<MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger( MongoDualIPRepository.class.getCanonicalName() );
 
 	private static final String CLUSTER_NODES = "cluster_nodes";
 
-	private String resourceUri;
-
-	private MongoClient mongo;
 	private MongoDatabase db;
 	private MongoCollection<Document> clusterNodes;
 
 	@Override
-	public void getDefaults( Map<String, Object> defs, Map<String, Object> params ) {
-		String repo_uri = RepositoryFactory.DERBY_REPO_URL_PROP_VAL;
+	public void setDataSource(MongoDataSource dataSource) {
+		db = dataSource.getDatabase();
 
-		if ( params.get( RepositoryFactory.GEN_USER_DB_URI ) != null ){
-			repo_uri = (String) params.get( RepositoryFactory.GEN_USER_DB_URI );
+		if (!collectionExists(db, CLUSTER_NODES)) {
+			db.createCollection(CLUSTER_NODES);
 		}
-		defs.put( REPO_URI_PROP_KEY, repo_uri );
-
-	}
-
-	@Override
-	public void initRepository( String resource_uri, Map<String, String> params ) throws DBInitException {
-
-		try {
-			resourceUri = resource_uri;
-			MongoClientURI uri = new MongoClientURI( resource_uri );
-			//uri.get
-			mongo = new MongoClient( uri );
-			db = mongo.getDatabase( uri.getDatabase() );
-
-			if (!collectionExists(db, CLUSTER_NODES)) {
-				db.createCollection(CLUSTER_NODES);
-			}
-			clusterNodes = db.getCollection( CLUSTER_NODES );
-			clusterNodes.createIndex( new BasicDBObject( "hostname", 1 ) );
-
-		} catch ( Exception ex ) {
-			throw new DBInitException( "Could not initialize MongoDB repository", ex );
-		}
-
+		clusterNodes = db.getCollection( CLUSTER_NODES );
+		clusterNodes.createIndex( new BasicDBObject( "hostname", 1 ) );
 	}
 
 	@Override
@@ -116,10 +86,6 @@ public class MongoDualIPRepository implements DualIPRepository {
 		log.info( "Loaded " + result.size() + " redirect definitions from database." );
 		return result;
 
-	}
-
-	@Override
-	public void setProperties( Map<String, Object> props ) {
 	}
 
 }

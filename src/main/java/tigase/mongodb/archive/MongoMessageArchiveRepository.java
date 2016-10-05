@@ -21,29 +21,35 @@
  */
 package tigase.mongodb.archive;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
-import com.mongodb.MongoException;
 import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
+import org.bson.types.Binary;
+import org.bson.types.ObjectId;
+import tigase.archive.QueryCriteria;
 import tigase.archive.db.AbstractMessageArchiveRepository;
-import tigase.db.DBInitException;
+import tigase.archive.db.MessageArchiveRepository;
+import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
-import tigase.mongodb.archive.MongoMessageArchiveRepository.Criteria;
+import tigase.kernel.beans.config.ConfigField;
+import tigase.mongodb.MongoDataSource;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
 import tigase.xml.SimpleParser;
 import tigase.xml.SingletonFactory;
+import tigase.xmpp.Authorization;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 import tigase.xmpp.RSM;
+import tigase.xmpp.mam.MAMRepository;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
@@ -58,7 +64,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class MongoMessageArchiveRepository extends AbstractMessageArchiveRepository<Criteria> {
+public class MongoMessageArchiveRepository extends AbstractMessageArchiveRepository<QueryCriteria,MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger(MongoMessageArchiveRepository.class.getCanonicalName());
 
@@ -71,15 +77,16 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	
 	private static final SimpleParser parser      = SingletonFactory.getParserInstance();
 	
-	private String resourceUri;
-	private MongoClient mongo;
 	private MongoDatabase db;
 	private MongoCollection<Document> msgsCollection;
 
+	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
-	
+
+	@ConfigField(desc = "Store plaintext body in database", alias = STORE_PLAINTEXT_BODY_KEY)
 	private boolean storePlaintextBody = true;
-	
+
+
 	private static byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
@@ -92,11 +99,29 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	private static byte[] generateId(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.getBytes());
+			return md.digest(user.toLowerCase().getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
-	}	
+	}
+
+	public void setDataSource(MongoDataSource dataSource) {
+		MongoDatabase db = dataSource.getDatabase();
+		if (!collectionExists(db, MSGS_COLLECTION)) {
+			db.createCollection(MSGS_COLLECTION);
+		}
+
+		msgsCollection = db.getCollection(MSGS_COLLECTION);
+
+		msgsCollection.createIndex(new Document("owner_id", 1).append("date", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1));
+		msgsCollection.createIndex(new Document("body", "text"));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("tags", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1).append("hash", 1));
+		msgsCollection.createIndex(new Document("owner_domain_id", 1).append("ts", 1));
+
+		this.db = db;
+	}
 	
 	@Override
 	public void archiveMessage(BareJID owner, JID buddy, Direction direction, Date timestamp, Element msg, Set<String> tags) {
@@ -112,9 +137,9 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			Document crit = new Document("owner_id", oid).append("buddy_id", bid)
 					.append("ts", timestamp).append("hash", hash);
 			
-			Document dto = new Document("owner", owner.toString()).append("owner_id", oid)
+			Document dto = new Document("owner", owner.toString().toLowerCase()).append("owner_id", oid)
 					.append("owner_domain_id", odid)
-					.append("buddy", buddy.getBareJID().toString()).append("buddy_id", bid)
+					.append("buddy", buddy.getBareJID().toString().toLowerCase()).append("buddy_id", bid)
 					.append("buddy_res", buddy.getResource())
 					// adding date for aggregation
 					.append("date", date)
@@ -151,14 +176,19 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not remove expired messages", ex);
 		}
-	}	
-	
+	}
+
+	private Integer getColletionPosition(String uid) {
+		if (uid == null || uid.isEmpty())
+			return null;
+
+		return Integer.parseInt(uid);
+	}
+
 	@Override
-	public List<Element> getCollections(BareJID owner, Criteria criteria) throws TigaseDBException {
+	public void queryCollections(QueryCriteria query, CollectionHandler<QueryCriteria> collectionHandler) throws TigaseDBException {
 		try {
-			criteria.setOwner(owner);
-			
-			Document crit = criteria.getCriteriaDocument();
+			Document crit = createCriteriaDocument(query);
 			List<Element> results = new ArrayList<Element>();
 
 			List<Document> pipeline = new ArrayList<Document>();
@@ -178,8 +208,11 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			Document countDoc = cursor.first();
 			int count = (countDoc != null) ? countDoc.getInteger("count") : 0;
 
-			criteria.setSize(count);
-			
+			Integer after = getColletionPosition(query.getRsm().getAfter());
+			Integer before = getColletionPosition(query.getRsm().getBefore());
+
+			calculateOffsetAndPosition(query, count, before, after);
+
 			if (count > 0) {
 				pipeline.clear();
 
@@ -188,12 +221,12 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 				Document sort = new Document("$sort", new Document("ts", 1).append("buddy", 1));
 				pipeline.add(sort);
 
-				if (criteria.getOffset() > 0) {
-					Document skipCrit = new Document("$skip", criteria.getOffset());
+				if (query.getRsm().getIndex() > 0) {
+					Document skipCrit = new Document("$skip", query.getRsm().getIndex());
 					pipeline.add(skipCrit);
 				}
 				
-				Document limitCrit = new Document("$limit", criteria.getLimit());
+				Document limitCrit = new Document("$limit", query.getRsm().getMax());
 				pipeline.add(limitCrit);
 
 				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
@@ -201,73 +234,111 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 				for ( Document dto : cursor) {
 					String buddy = (String) dto.get("buddy");
 					Date ts = (Date) dto.get("ts");
-					addCollectionToResults(results, criteria, buddy, ts, null);
+					collectionHandler.collectionFound(query, buddy, ts, null);
 				}
 			}
-			
-			RSM rsm = criteria.getRSM();
-			rsm.setResults(count, criteria.getOffset());
-			if (!results.isEmpty()) {
-				rsm.setFirst(String.valueOf(criteria.getOffset()));
-				rsm.setLast(String.valueOf(criteria.getOffset() + (results.size() - 1)));
-			}			
-			
-			return results;
+
+			List<Element> collections = query.getCollections();
+			if (collections != null) {
+				int first = query.getRsm().getIndex();
+				query.getRsm().setFirst(String.valueOf(first));
+				query.getRsm().setLast(String.valueOf(first + collections.size() - 1));
+			}
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not retrieve collections", ex);
 		}
 	}
 
+	private Integer getItemPosition(String uid, QueryCriteria query, Document crit) throws SQLException, ComponentException {
+		if (uid == null || uid.isEmpty())
+			return null;
+
+		System.out.println("getting position for " + uid);
+		if (!query.getUseMessageIdInRsm())
+			return Integer.parseInt(uid);
+
+		Document idCrit = new Document(crit);
+		idCrit.append("hash", tigase.util.Base64.decode(uid));
+
+		FindIterable<Document> cursor = msgsCollection.find(idCrit);
+		Document doc = cursor.first();
+		if (doc == null) {
+			System.out.println("item with " + uid + " not found");
+			return null;
+		}
+		ObjectId id = cursor.first().getObjectId("_id");
+
+		Document positionCrit = new Document(crit);
+		positionCrit.append("_id", new Document("$lt", id));
+
+		long position = msgsCollection.count(positionCrit);
+
+		System.out.println("got position " + position + " for " + uid);
+
+		if (position < 0)
+			throw new ComponentException(Authorization.BAD_REQUEST, "Item with " + uid + " not found");
+
+		return (int) (position);
+	}
+
+
 	@Override
-	public List<Element> getItems(BareJID owner, Criteria criteria) throws TigaseDBException {
+	public void queryItems(QueryCriteria query, ItemHandler<QueryCriteria, MAMRepository.Item> itemHandler) throws TigaseDBException {
 		try {
-			criteria.setOwner(owner);
-			
-			Document crit = criteria.getCriteriaDocument();
+			Document crit = createCriteriaDocument(query);
 			List<Element> results = new ArrayList<Element>();
 
-			long count = msgsCollection.count(crit);
-			criteria.setSize((int) count);
+			int count = (int) msgsCollection.count(crit);
+
+			Integer after = getItemPosition(query.getRsm().getAfter(), query, crit);
+			Integer before = getItemPosition(query.getRsm().getBefore(), query, crit);
+
+			calculateOffsetAndPosition(query, count, before, after);
+
 
 			FindIterable<Document> cursor = msgsCollection.find(crit);
-			if (criteria.getOffset() > 0) {
-				cursor = cursor.skip(criteria.getOffset());
+			if (query.getRsm().getIndex() > 0) {
+				cursor = cursor.skip(query.getRsm().getIndex());
 			}
-			cursor = cursor.batchSize(batchSize).limit(criteria.getLimit()).sort(new Document("ts", 1));
+			cursor = cursor.batchSize(batchSize).limit(query.getRsm().getMax()).sort(new Document("ts", 1));
 
 			Iterator<Document> iter = cursor.iterator();
 			if (iter.hasNext()) {
-				Date startTimestamp = criteria.getStart();
+				int idx = query.getRsm().getIndex();
+				int i = 0;
+				Date startTimestamp = query.getStart();
 				DomBuilderHandler domHandler = new DomBuilderHandler();
+				Item item = new Item();
 				while (iter.hasNext()) {
 					Document dto = iter.next();
 
 					String msgStr = (String) dto.get("msg");
-					Date ts = (Date) dto.get("ts");
-					Direction direction = Direction.valueOf((String) dto.get("direction"));
+					item.timestamp = (Date) dto.get("ts");
+					item.direction = Direction.valueOf((String) dto.get("direction"));
+
+					item.with = (crit.containsKey("buddy")) ? null : (String) dto.get("buddy");
+					if (query.getUseMessageIdInRsm()) {
+						item.id = tigase.util.Base64.encode(((Binary) dto.get("hash")).getData());
+					}
+
+					parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
 
 					if (startTimestamp == null)
-						startTimestamp = ts;
-					String with = (crit.containsKey("buddy")) ? null : (String) dto.get("buddy");
-					
-					parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
+						startTimestamp = item.timestamp;
 
 					Queue<Element> queue = domHandler.getParsedElements();
 					Element msg = null;
 					while ((msg = queue.poll()) != null) {
-						addMessageToResults(results, criteria, startTimestamp, msg, ts, direction, with);
+						if (!query.getUseMessageIdInRsm()) {
+							item.id = String.valueOf(idx + i);
+						}
+						item.messageEl = msg;
+						itemHandler.itemFound(query, item);
 					}
+					i++;
 				}
+				query.setStart(startTimestamp);
 			}
-			
-			RSM rsm = criteria.getRSM();
-			rsm.setResults((int) count, criteria.getOffset());
-			if (!results.isEmpty()) {
-				rsm.setFirst(String.valueOf(criteria.getOffset()));
-				rsm.setLast(String.valueOf(criteria.getOffset() + (results.size() - 1)));
-			}			
-			
-			return results;
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not retrieve collections", ex);
 		}
@@ -287,8 +358,8 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			}
 			
 			Document dateCrit = new Document("$gte", start).append("$lte", end);
-			Document crit = new Document("owner_id", oid).append("owner", owner.toString())
-					.append("buddy_id", wid).append("buddy", withJid).append("ts", dateCrit);
+			Document crit = new Document("owner_id", oid).append("owner", owner.toString().toLowerCase())
+					.append("buddy_id", wid).append("buddy", withJid.toLowerCase()).append("ts", dateCrit);
 			
 			msgsCollection.deleteMany(crit);
 		} catch (Exception ex) {
@@ -297,7 +368,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 	
 	@Override
-	public List<String> getTags(BareJID owner, String startsWith, Criteria criteria) throws TigaseDBException {
+	public List<String> getTags(BareJID owner, String startsWith, QueryCriteria criteria) throws TigaseDBException {
 		List<String> results = new ArrayList<String>();
 		try {
 			byte[] oid = generateId(owner);
@@ -315,24 +386,27 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			Document countDoc = cursor.first();
 			int count = countDoc != null ? countDoc.getInteger("count") : null;
 
-			criteria.setSize(count);
+			String beforeStr = criteria.getRsm().getBefore();
+			String afterStr = criteria.getRsm().getAfter();
+			calculateOffsetAndPosition(criteria, count, beforeStr == null ? null : Integer.parseInt(beforeStr), afterStr == null ? null : Integer.parseInt(afterStr));
+
 			if (count > 0) {
 				pipeline.remove(pipeline.size() - 1);
 				pipeline.add(new Document("$sort", new Document("_id", 1)));
-				if (criteria.getOffset() > 0) {
-					pipeline.add(new Document("$skip", criteria.getOffset()));
+				if (criteria.getRsm().getIndex() > 0) {
+					pipeline.add(new Document("$skip", criteria.getRsm().getIndex()));
 				}
-				pipeline.add(new Document("$limit", criteria.getLimit()));
+				pipeline.add(new Document("$limit", criteria.getRsm().getMax()));
 				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
 				for (Document dto : cursor) {
 					results.add((String) dto.get("_id"));
 				}
 
-				RSM rsm = criteria.getRSM();
-				rsm.setResults(count, criteria.getOffset());
-				if (!results.isEmpty()) {
-					rsm.setFirst(String.valueOf(criteria.getOffset()));
-					rsm.setLast(String.valueOf(criteria.getOffset() + (results.size() - 1)));
+				RSM rsm = criteria.getRsm();
+				rsm.setResults(count, rsm.getIndex());
+				if (results!= null && !results.isEmpty()) {
+					rsm.setFirst(String.valueOf(rsm.getIndex()));
+					rsm.setLast(String.valueOf(rsm.getIndex() + (results.size() - 1)));
 				}
 			}
 		} catch (Exception ex) {
@@ -342,106 +416,88 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 
 	@Override
-	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
-		try {
-			if (params.containsKey(STORE_PLAINTEXT_BODY_KEY)) {
-				storePlaintextBody = Boolean.parseBoolean(params.get(STORE_PLAINTEXT_BODY_KEY));
-			} else {
-				storePlaintextBody = true;
-			}
-			if (params.containsKey("batch-size")) {
-				batchSize = Integer.parseInt(params.get("batch-size"));
-			} else {
-				batchSize = DEF_BATCH_SIZE;
-			}
-
-			resourceUri = resource_uri;
-			MongoClientURI uri = new MongoClientURI(resource_uri);
-			mongo = new MongoClient(uri);
-			db = mongo.getDatabase(uri.getDatabase());
-
-			if (!collectionExists(db, MSGS_COLLECTION)) {
-				db.createCollection(MSGS_COLLECTION);
-			}
-			msgsCollection = db.getCollection(MSGS_COLLECTION);
-
-			msgsCollection.createIndex(new Document("owner_id", 1).append("date", 1));
-			msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1));
-			msgsCollection.createIndex(new Document("body", "text"));
-			msgsCollection.createIndex(new Document("owner_id", 1).append("tags", 1));
-			msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1).append("hash", 1));
-			msgsCollection.createIndex(new Document("owner_domain_id", 1).append("ts", 1));
-		} catch (MongoException ex) {
-			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
-		}
+	public QueryCriteria newQuery() {
+		return new QueryCriteria();
 	}
-	
-	@Override
-	public void destroy() {
-		if (mongo != null) {
-			// if there is instance of MongoClient then we should close it on destroy
-			// to release resources
-			mongo.close();
-		}
-	}
-	
-	@Override
-	public AbstractCriteria newCriteriaInstance() {
-		return new Criteria();
-	}
-	
-	public static class Criteria extends AbstractCriteria<Date> {
 
-		private BareJID owner;
-		
-		protected void setOwner(BareJID owner) {
-			this.owner = owner;
+	public Document createCriteriaDocument(QueryCriteria query) throws TigaseDBException {
+		BareJID owner = query.getQuestionerJID().getBareJID();
+		byte[] oid = generateId(owner);
+		Document crit = new Document("owner_id", oid).append("owner", owner.toString().toLowerCase());
+
+		if (query.getWith() != null) {
+			String withJid = query.getWith().getBareJID().toString().toLowerCase();
+			byte[] wid = generateId(withJid);
+			crit.append("buddy_id", wid).append("buddy", withJid);
 		}
-		
-		@Override
-		protected Date convertTimestamp(Date date) {
-			return date;
+
+		Document dateCrit = null;
+		if (query.getStart() != null) {
+			if (dateCrit == null) dateCrit = new Document();
+			dateCrit.append("$gte", query.getStart());
 		}
-		
-		protected Document getCriteriaDocument() throws TigaseDBException {
-			byte[] oid = generateId(owner);
-			Document crit = new Document("owner_id", oid).append("owner", owner.toString());
-			
-			if (getWith() != null) {
-				String withJid = getWith();
-				byte[] wid = generateId(withJid);
-				crit.append("buddy_id", wid).append("buddy", withJid);
-			}
-			
-			Document dateCrit = null;
-			if (getStart() != null) {
-				if (dateCrit == null) dateCrit = new Document();
-				dateCrit.append("$gte", getStart());
-			}
-			if (getEnd() != null) {
-				if (dateCrit == null) dateCrit = new Document();
-				dateCrit.append("$lte", getEnd());
-			}
-			if (dateCrit != null) {
-				crit.append("ts", dateCrit);
-			}
-			if (!getTags().isEmpty()) {
-				crit.append("tags", new Document("$all", new ArrayList<String>(getTags())));
-			}
-			
-			if (!getContains().isEmpty()) {
-				StringBuilder containsSb = new StringBuilder();
-				for (String contains : getContains()) {
-					if (containsSb.length() > 0)
-						containsSb.append(" ");
+		if (query.getEnd() != null) {
+			if (dateCrit == null) dateCrit = new Document();
+			dateCrit.append("$lte", query.getEnd());
+		}
+		if (dateCrit != null) {
+			crit.append("ts", dateCrit);
+		}
+		if (!query.getTags().isEmpty()) {
+			crit.append("tags", new Document("$all", new ArrayList<String>(query.getTags())));
+		}
+
+		if (!query.getContains().isEmpty()) {
+			StringBuilder containsSb = new StringBuilder();
+			for (String contains : query.getContains()) {
+				if (containsSb.length() > 0)
+					containsSb.append(" ");
+				if (contains.contains(" ")) {
+					containsSb.append("\"");
+					containsSb.append(contains);
+					containsSb.append("\"");
+				} else {
 					containsSb.append(contains);
 				}
-				crit.append("$text", new Document("$search", containsSb.toString()));
 			}
-			
-			return crit;
+			crit.append("$text", new Document("$search", containsSb.toString()));
 		}
-		
+
+		return crit;
 	}
-	
+
+	public static class Item<Q extends QueryCriteria> implements MessageArchiveRepository.Item {
+		String id;
+		Element messageEl;
+		Date timestamp;
+		Direction direction;
+		String with;
+
+		@Override
+		public String getId() {
+			return id;
+		}
+
+		@Override
+		public Direction getDirection() {
+			return direction;
+		}
+
+		@Override
+		public Element getMessage() {
+			return messageEl;
+		}
+
+		@Override
+		public Date getTimestamp() {
+			return timestamp;
+		}
+
+		@Override
+		public String getWith() {
+			return with;
+		}
+	}
+
+
 }

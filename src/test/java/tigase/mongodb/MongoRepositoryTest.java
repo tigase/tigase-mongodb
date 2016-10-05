@@ -22,6 +22,9 @@
 package tigase.mongodb;
 
 import org.junit.*;
+import org.junit.rules.TestRule;
+import org.junit.runner.Description;
+import org.junit.runners.model.Statement;
 import tigase.db.DBInitException;
 import tigase.db.TigaseDBException;
 import tigase.util.TigaseStringprepException;
@@ -33,15 +36,33 @@ import java.util.HashMap;
  *
  * @author andrzej
  */
-@Ignore
 public class MongoRepositoryTest {
-	
+
+	protected static String uri = System.getProperty("testDbUri");
+
+	@ClassRule
+	public static TestRule rule = new TestRule() {
+		@Override
+		public Statement apply(Statement stmnt, Description d) {
+			if (uri == null) {
+				return new Statement() {
+					@Override
+					public void evaluate() throws Throwable {
+						Assume.assumeTrue("Ignored due to not passed DB URI!", false);
+					}
+				};
+			}
+			return stmnt;
+		}
+	};
 	private MongoRepository repo; 
 	
 	@Before
 	public void setup() throws DBInitException {
+		MongoDataSource dataSource = new MongoDataSource();
+		dataSource.initRepository(uri, new HashMap<>());
 		repo = new MongoRepository();
-		repo.initRepository("mongodb://localhost/tigase_junit", new HashMap<String,String>());
+		repo.setDataSource(dataSource);
 	}
 	
 	@After
@@ -167,21 +188,13 @@ public class MongoRepositoryTest {
 	}
 	
 	private void prepareUserAutoCreateRepo() throws Exception {
-		String uri = repo.getResourceUri();
-		if (uri.contains("?")) {
-			uri += "&";
-		} else {
-			uri += "?";
-		}
-		uri += "autoCreateUser=true";
-		repo = new MongoRepository();
-		repo.initRepository(uri, new HashMap<String,String>());		
+		repo.autoCreateUser = true;
 	}
 	
 	@Test
 	public void testAddDataListUserAutoCreate() throws Exception {
 		prepareUserAutoCreateRepo();
-		
+
 		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
 		String[] data = new String[] {
 			"test1",
@@ -197,7 +210,7 @@ public class MongoRepositoryTest {
 	@Test
 	public void testSetDataListUserAutoCreate() throws Exception {
 		prepareUserAutoCreateRepo();
-		
+
 		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
 		String[] data = new String[] {
 			"test1",
@@ -213,7 +226,7 @@ public class MongoRepositoryTest {
 	@Test
 	public void testSetDataUserAutoCreate() throws Exception {
 		prepareUserAutoCreateRepo();
-		
+
 		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
 		String data = "test-data";
 		

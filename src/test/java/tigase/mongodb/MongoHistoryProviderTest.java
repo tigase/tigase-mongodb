@@ -22,6 +22,9 @@
 package tigase.mongodb;
 
 import org.junit.*;
+import org.junit.rules.TestRule;
+import org.junit.runner.Description;
+import org.junit.runners.model.Statement;
 import tigase.component.PacketWriter;
 import tigase.component.responses.AsyncCallback;
 import tigase.db.DBInitException;
@@ -41,20 +44,41 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * @author andrzej
  */
-@Ignore
 public class MongoHistoryProviderTest {
+
+	protected static String uri = System.getProperty("testDbUri");
+
+	@ClassRule
+	public static TestRule rule = new TestRule() {
+		@Override
+		public Statement apply(Statement stmnt, Description d) {
+			if (uri == null) {
+				return new Statement() {
+					@Override
+					public void evaluate() throws Throwable {
+						Assume.assumeTrue("Ignored due to not passed DB URI!", false);
+					}
+				};
+			}
+			return stmnt;
+		}
+	};
 
 	private MongoHistoryProvider provider;
 	private Room room;
 
 	private JID test1 = JID.jidInstanceNS("test1@tigase/test");
-	
+
 	@Before
 	public void setup() throws DBInitException {
+		MongoDataSource dataSource = new MongoDataSource();
+		dataSource.initRepository(uri, new HashMap<>());
+
 		provider = new MongoHistoryProvider();
-		provider.initRepository("mongodb://localhost/tigase_junit", new HashMap<String,String>());
-		
-		room = Room.newInstance(new RoomConfig(BareJID.bareJIDInstanceNS("test@muc.example")), new Date(), test1.getBareJID());
+		provider.setDataSource(dataSource);
+
+		Room.RoomFactory roomFactory = new Room.RoomFactoryImpl();
+		room = roomFactory.newInstance(new RoomConfig(BareJID.bareJIDInstanceNS("test@muc.example")), new Date(), test1.getBareJID());
 	}
 	
 	@After

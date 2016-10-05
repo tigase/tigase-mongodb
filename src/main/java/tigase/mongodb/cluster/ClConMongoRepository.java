@@ -21,8 +21,6 @@
  */
 package tigase.mongodb.cluster;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -30,9 +28,12 @@ import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import tigase.cluster.repo.ClConConfigRepository;
 import tigase.cluster.repo.ClusterRepoConstants;
+import tigase.cluster.repo.ClusterRepoItem;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
-import tigase.db.RepositoryFactory;
+import tigase.db.comp.ComponentRepositoryDataSourceAware;
+import tigase.kernel.beans.config.ConfigField;
+import tigase.mongodb.MongoDataSource;
 
 import java.util.Date;
 import java.util.Map;
@@ -43,7 +44,7 @@ import static tigase.mongodb.Helper.collectionExists;
 
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class ClConMongoRepository extends ClConConfigRepository
-				implements ClusterRepoConstants {
+				implements ClusterRepoConstants, ComponentRepositoryDataSourceAware<ClusterRepoItem,MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger(ClConMongoRepository.class.getCanonicalName());
 
@@ -51,12 +52,10 @@ public class ClConMongoRepository extends ClConConfigRepository
 
 	private static final String CLUSTER_NODES = "cluster_nodes";
 	
-	private String resourceUri;
-	
-	private MongoClient mongo;
 	private MongoDatabase db;
 	private MongoCollection<Document> clusterNodes;
 
+	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 
 	@Override
@@ -65,22 +64,6 @@ public class ClConMongoRepository extends ClConConfigRepository
 		// pool to database which is cached by RepositoryFactory and maybe be used
 		// in other places, so we can not destroy it.
 		super.destroy();
-		if (mongo != null) {
-			mongo.close();
-		}
-	}
-	
-
-	@Override
-	public void getDefaults(Map<String, Object> defs, Map<String, Object> params) {
-		super.getDefaults(defs, params);
-
-		String repo_uri = RepositoryFactory.DERBY_REPO_URL_PROP_VAL;
-
-		if (params.get(RepositoryFactory.GEN_USER_DB_URI) != null) {
-			repo_uri = (String) params.get(RepositoryFactory.GEN_USER_DB_URI);
-		}
-		defs.put(REPO_URI_PROP_KEY, repo_uri);
 	}
 
 	//~--- methods --------------------------------------------------------------
@@ -90,26 +73,11 @@ public class ClConMongoRepository extends ClConConfigRepository
 					throws DBInitException {
 		super.initRepository(resource_uri, params);	
 		try {
-			if (params != null) {
-				if (params.containsKey("batch-size")) {
-					batchSize = Integer.parseInt(params.get("batch-size"));
-				} else {
-					batchSize = DEF_BATCH_SIZE;
-				}
+			if (db == null) {
+				MongoDataSource ds = new MongoDataSource();
+				ds.initRepository(resource_uri, params);
+				setDataSource(ds);
 			}
-
-			resourceUri = resource_uri;
-			MongoClientURI uri = new MongoClientURI(resource_uri);
-			//uri.get
-			mongo = new MongoClient(uri);
-			db = mongo.getDatabase(uri.getDatabase());
-
-			if (!collectionExists(db, CLUSTER_NODES)) {
-				db.createCollection(CLUSTER_NODES);
-			}
-			clusterNodes = db.getCollection(CLUSTER_NODES);
-			clusterNodes.createIndex(new Document("hostname", 1));
-			
 		} catch (Exception ex) {
 			throw new DBInitException("Could not initialize MongoDB repository", ex);
 		}
@@ -128,7 +96,16 @@ public class ClConMongoRepository extends ClConConfigRepository
 
 	}
 
+	@Override
+	public void setDataSource(MongoDataSource dataSource) {
+		db = dataSource.getDatabase();
 
+		if (!collectionExists(db, CLUSTER_NODES)) {
+			db.createCollection(CLUSTER_NODES);
+		}
+		clusterNodes = db.getCollection(CLUSTER_NODES);
+		clusterNodes.createIndex(new Document("hostname", 1));
+	}
 
 	@Override
 	public void storeItem(tigase.cluster.repo.ClusterRepoItem item) {
@@ -146,7 +123,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 	
 	@Override
 	public void reload() {
-		if ( ( System.currentTimeMillis() - lastReloadTime ) <= ( autoreload_interval * lastReloadTimeFactor ) ){
+		if ( ( System.currentTimeMillis() - lastReloadTime ) <= ( autoReloadInterval * lastReloadTimeFactor ) ){
 			if ( log.isLoggable( Level.FINEST ) ){
 				log.log( Level.FINEST, "Last reload performed in {0}, skipping: ", ( System.currentTimeMillis() - lastReloadTime ) );
 			}
