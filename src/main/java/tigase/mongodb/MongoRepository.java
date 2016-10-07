@@ -43,6 +43,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 import static tigase.mongodb.Helper.collectionExists;
@@ -54,17 +56,19 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class MongoRepository implements AuthRepository, UserRepository, DataSourceAware<MongoDataSource> {
+public class MongoRepository implements AuthRepository, UserRepository, DataSourceAware<MongoDataSource>, RepositoryVersionAware {
+
+	private static final Logger log = Logger.getLogger(MongoRepository.class.getCanonicalName());
 
 	private static final String JID_HASH_ALG = "SHA-256";
 
 	private static final int DEF_BATCH_SIZE = 100;
 
-	private static final String USERS_COLLECTION = "tig_users";
-	private static final String NODES_COLLECTION = "tig_nodes";
+	protected static final String USERS_COLLECTION = "tig_users";
+	protected static final String NODES_COLLECTION = "tig_nodes";
 
-	private static final String ID_KEY = "user_id";
-	private static final String DOMAIN_KEY = "domain";
+	protected static final String ID_KEY = "user_id";
+	protected static final String DOMAIN_KEY = "domain";
 	private static final String AUTO_CREATE_USER_KEY = "autoCreateUser=";
 
 	private MongoDataSource dataSource;
@@ -78,10 +82,10 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 
-	private byte[] generateId(BareJID user) throws TigaseDBException {
+	protected byte[] generateId(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.toString().toLowerCase().getBytes());
+			return md.digest(user.getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
@@ -112,30 +116,32 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 		// let's override AuthRepositoryImpl to store password inside objects in tig_users
 		auth = new AuthRepositoryImpl(this) {
 			@Override
-			public String getPassword(BareJID user) throws TigaseDBException {
+			public String getPassword(BareJID userJid) throws TigaseDBException {
 				try {
+					String user = userJid.toString().toLowerCase();
 					byte[] id = generateId(user);
 					Document userDto = usersCollection.find(new BasicDBObject("_id", id)
-																	.append(ID_KEY, user.toString().toLowerCase())).projection(new BasicDBObject(PASSWORD_KEY, 1)).first();
+																	.append(ID_KEY, user)).projection(new BasicDBObject(PASSWORD_KEY, 1)).first();
 					if (userDto == null)
 						throw new UserNotFoundException("User " + user + " not found in repository");
 					return (String) userDto.get(PASSWORD_KEY);
 				} catch (MongoException ex) {
-					throw new TigaseDBException("Error retrieving password for user " + user, ex);
+					throw new TigaseDBException("Error retrieving password for user " + userJid, ex);
 				}
 			}
 
 			@Override
-			public void updatePassword(BareJID user, String password) throws TigaseDBException {
+			public void updatePassword(BareJID userJid, String password) throws TigaseDBException {
 				try {
+					String user = userJid.toString().toLowerCase();
 					byte[] id = generateId(user);
 					UpdateResult result = usersCollection.updateOne(
-							new BasicDBObject("_id", id).append(ID_KEY, user.toString().toLowerCase()),
+							new BasicDBObject("_id", id).append(ID_KEY, user),
 							new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
 					if (result == null || result.getModifiedCount() == 1)
 						throw new UserNotFoundException("User " + user + " not found in repository");
 				} catch (MongoException ex) {
-					throw new TigaseDBException("Error retrieving password for user " + user, ex);
+					throw new TigaseDBException("Error retrieving password for user " + userJid, ex);
 				}
 			}
 		};
@@ -154,11 +160,12 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 		}
 	}
 
-	private Object addUserRepo(BareJID user) throws UserExistsException, TigaseDBException {
+	private Object addUserRepo(BareJID userJid) throws UserExistsException, TigaseDBException {
 		try {
+			String user = userJid.toString().toLowerCase();
 			byte[] id = generateId(user);
-			Document userDto = new Document().append(ID_KEY, user.toString().toLowerCase());
-			userDto.append(DOMAIN_KEY, user.getDomain().toLowerCase());
+			Document userDto = new Document().append(ID_KEY, user);
+			userDto.append(DOMAIN_KEY, userJid.getDomain());
 			userDto.append("_id", id);
 			usersCollection.insertOne(userDto);
 			return id;
@@ -169,10 +176,11 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 		}
 	}
 
-	private void ensureUserExists(BareJID user, byte[] id) throws TigaseDBException {
+	private void ensureUserExists(BareJID userJid, byte[] id) throws TigaseDBException {
 		try {
-			BasicDBObject userDto = new BasicDBObject().append(ID_KEY, user.toString().toLowerCase());
-			userDto.append(DOMAIN_KEY, user.getDomain().toLowerCase());
+			String user = userJid.toString().toLowerCase();
+			BasicDBObject userDto = new BasicDBObject().append(ID_KEY, user);
+			userDto.append(DOMAIN_KEY, userJid.getDomain());
 			if (id == null)
 				id = generateId(user);
 			userDto.append("_id", id);
@@ -183,15 +191,16 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	}
 	
 	@Override
-	public void addDataList(BareJID user, String subnode, String key, String[] list)
+	public void addDataList(BareJID userJid, String subnode, String key, String[] list)
 			throws UserNotFoundException, TigaseDBException {
 		subnode = normalizeSubnode( subnode );
 		try {
+			String user = userJid.toString().toLowerCase();
 			byte[] uid = generateId(user);
 			Document dto = new Document("uid", uid).append("node", subnode).append("key", key).append("values", Arrays.asList(list));
 			nodesCollection.insertOne(dto);
 			if (autoCreateUser) {
-				ensureUserExists(user, uid);
+				ensureUserExists(userJid, uid);
 			}
 		}
 		catch (MongoException ex) {
@@ -204,8 +213,9 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 		addUserRepo(user);
 	}
 
-	private Document createCrit(BareJID user, String subnode, String key) throws TigaseDBException {
+	private Document createCrit(BareJID userJid, String subnode, String key) throws TigaseDBException {
 		subnode = normalizeSubnode( subnode );
+		String user = userJid.toString().toLowerCase();
 		byte[] uid = generateId(user);
 		Document crit = new Document("uid", uid);
 		if (key != null)
@@ -334,12 +344,13 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	}
 
 	@Override
-	public boolean userExists(BareJID user) {
+	public boolean userExists(BareJID userJid) {
 		try {
+			String user = userJid.toString().toLowerCase();
 			BasicDBObject userDto = new BasicDBObject();
 			byte[] id = generateId(user);
 			userDto.append("_id", id);
-			userDto.append(ID_KEY, user.toString().toLowerCase());
+			userDto.append(ID_KEY, user);
 			return usersCollection.count(userDto) > 0;
 		} catch (Exception e) {
 			return false;
@@ -392,25 +403,27 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	}
 
 	@Override
-	public void removeUser(BareJID user) throws UserNotFoundException, TigaseDBException {
+	public void removeUser(BareJID userJid) throws UserNotFoundException, TigaseDBException {
 		try {
 			Document userDto = new Document();
+			String user = userJid.toString().toLowerCase();
 			byte[] id = generateId(user);
 			userDto.append("_id", id);
-			userDto.append(ID_KEY, user.toString().toLowerCase());
+			userDto.append(ID_KEY, user);
 			usersCollection.deleteOne(userDto);
 
-			removeSubnode(user, null);
+			removeSubnode(userJid, null);
 		} catch (MongoException e) {
 			throw new TigaseDBException("Error removing user from repository: ", e);
 		}
 	}
 
 	@Override
-	public void removeSubnode(BareJID user, String subnode) throws UserNotFoundException, TigaseDBException {
+	public void removeSubnode(BareJID userJid, String subnode) throws UserNotFoundException, TigaseDBException {
 		subnode = normalizeSubnode( subnode );
 
 		try {
+			String user = userJid.toString().toLowerCase();
 			byte[] uid = generateId(user);
 			Document crit = new Document("uid", uid);
 			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode : "") + "[^/]*");
@@ -457,10 +470,10 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	}
 
 	@Override
-	public String[] getSubnodes(BareJID user, String subnode) throws UserNotFoundException, TigaseDBException {
+	public String[] getSubnodes(BareJID userJid, String subnode) throws UserNotFoundException, TigaseDBException {
 		subnode = normalizeSubnode( subnode );
 		try {
-			byte[] uid = generateId(user);
+			byte[] uid = generateId(userJid.toString().toLowerCase());
 			Document crit = new Document("uid", uid);
 			Pattern regex = Pattern.compile("^" + (subnode != null ? subnode + "/" : "") + "[^/]*");
 			crit.append("node", regex);
@@ -560,5 +573,31 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 		}
 
 		return result;
+	}
+
+	@Override
+	public void updateSchema() throws TigaseDBException {
+		long usersCount = getUsersCount();
+		List<BareJID> users = getUsers();
+
+		users.parallelStream().filter(jid -> !jid.toString().toLowerCase().equals(jid.toString())).forEach(jid -> {
+			try {
+				String oldUser = jid.toString();
+				byte[] oldUid = generateId(oldUser);
+				String newUser = jid.toString().toLowerCase();
+				byte[] newUid = generateId(newUser);
+
+				nodesCollection.updateMany(new Document("uid", oldUid), new Document("$set", new Document("uid", newUid)));
+
+				Document oldUserFilter = new Document("_id", oldUid).append(ID_KEY, oldUser);
+				Document oldUserDocument = usersCollection.find(oldUserFilter).first();
+				Document newUserDocument = new Document(oldUserDocument).append("_id", newUid).append(ID_KEY, newUser);
+
+				usersCollection.insertOne(newUserDocument);
+				usersCollection.findOneAndDelete(oldUserDocument);
+			} catch (TigaseDBException ex) {
+				log.log(Level.SEVERE, "Schema update failed!", ex);
+			}
+		});
 	}
 }

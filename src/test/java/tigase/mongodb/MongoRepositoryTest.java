@@ -21,6 +21,7 @@
  */
 package tigase.mongodb;
 
+import org.bson.Document;
 import org.junit.*;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
@@ -31,6 +32,9 @@ import tigase.util.TigaseStringprepException;
 import tigase.xmpp.BareJID;
 
 import java.util.HashMap;
+import java.util.UUID;
+
+import static org.junit.Assert.*;
 
 /**
  *
@@ -55,11 +59,12 @@ public class MongoRepositoryTest {
 			return stmnt;
 		}
 	};
+	private MongoDataSource dataSource;
 	private MongoRepository repo; 
 	
 	@Before
 	public void setup() throws DBInitException {
-		MongoDataSource dataSource = new MongoDataSource();
+		dataSource = new MongoDataSource();
 		dataSource.initRepository(uri, new HashMap<>());
 		repo = new MongoRepository();
 		repo.setDataSource(dataSource);
@@ -233,5 +238,25 @@ public class MongoRepositoryTest {
 		repo.setData(userJID, "test-node", "test-key", data);
 		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
 		Assert.assertEquals(data, repo.getData(userJID, "test-node", "test-key"));
-	}	
+	}
+
+	@Test
+	public void testSchemaUpgrade_JidComparison() throws Exception {
+		BareJID jid = BareJID.bareJIDInstance(UUID.randomUUID().toString() + "_TEST", "example.com");
+		byte[] uid = repo.generateId(jid.toString());
+
+		Document userDoc = new Document("_id", uid).append(MongoRepository.ID_KEY, jid.toString()).append(MongoRepository.DOMAIN_KEY, jid.getDomain());
+		dataSource.getDatabase().getCollection(MongoRepository.USERS_COLLECTION).insertOne(userDoc);
+
+		Document nodeDoc = new Document("uid", uid).append("node", "test-1").append("key", "test-2").append("value", "VALUE");
+		dataSource.getDatabase().getCollection(MongoRepository.NODES_COLLECTION).insertOne(nodeDoc);
+
+		assertNull(repo.getData(jid, "test-1", "test-2"));
+
+		repo.updateSchema();
+
+		assertEquals("VALUE", repo.getData(jid, "test-1", "test-2"));
+
+		repo.removeUser(jid);
+	}
 }

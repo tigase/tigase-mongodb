@@ -19,8 +19,9 @@
  * If not, see http://www.gnu.org/licenses/.
  *
  */
-package tigase.mongodb;
+package tigase.mongodb.muc;
 
+import org.bson.Document;
 import org.junit.*;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
@@ -28,7 +29,7 @@ import org.junit.runners.model.Statement;
 import tigase.component.PacketWriter;
 import tigase.component.responses.AsyncCallback;
 import tigase.db.DBInitException;
-import tigase.mongodb.muc.MongoHistoryProvider;
+import tigase.mongodb.MongoDataSource;
 import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.server.Packet;
@@ -39,6 +40,8 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.Assert.assertTrue;
 
 /**
  *
@@ -80,9 +83,10 @@ public class MongoHistoryProviderTest {
 		Room.RoomFactory roomFactory = new Room.RoomFactoryImpl();
 		room = roomFactory.newInstance(new RoomConfig(BareJID.bareJIDInstanceNS("test@muc.example")), new Date(), test1.getBareJID());
 	}
-	
+
 	@After
 	public void tearDown() {
+		provider.removeHistory(room);
 		provider.destroy();
 		provider = null;
 	}
@@ -102,7 +106,8 @@ public class MongoHistoryProviderTest {
 
 			@Override
 			public void write(Packet packet) {
-				Assert.assertEquals("Retrieved incorrect messsage", "Test message 1", packet.getElement().getChildCDataStaticStr(new String[] { "message", "body" }));
+				Assert.assertEquals("Retrieved incorrect messsage", "Test message 1",
+									packet.getElement().getChildCDataStaticStr(new String[]{"message", "body"}));
 				count.incrementAndGet();
 			}
 
@@ -110,11 +115,11 @@ public class MongoHistoryProviderTest {
 			public void write(Packet packet, AsyncCallback callback) {
 				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
 			}
-			
+
 		});
 		Assert.assertEquals("Not retrieved correct number of messages", 1, count.get());
 	}
-	
+
 	@Test
 	public void testProviderByDate() {
 		Date date = new Date();
@@ -131,7 +136,8 @@ public class MongoHistoryProviderTest {
 
 			@Override
 			public void write(Packet packet) {
-				Assert.assertEquals("Retrieved incorrect messsage", "Test message 2", packet.getElement().getChildCDataStaticStr(new String[] { "message", "body" }));
+				Assert.assertEquals("Retrieved incorrect messsage", "Test message 2",
+									packet.getElement().getChildCDataStaticStr(new String[]{"message", "body"}));
 				count.incrementAndGet();
 			}
 
@@ -139,11 +145,11 @@ public class MongoHistoryProviderTest {
 			public void write(Packet packet, AsyncCallback callback) {
 				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
 			}
-			
+
 		});
 		Assert.assertEquals("Not retrieved correct number of messages", 1, count.get());
-	}	
-	
+	}
+
 	@Test
 	public void testProviderRemoval() {
 		provider.addMessage(room, null, "Test message 3", test1, "Test 3", new Date());
@@ -160,7 +166,8 @@ public class MongoHistoryProviderTest {
 
 			@Override
 			public void write(Packet packet) {
-				Assert.assertEquals("Retrieved incorrect messsage", "Test message 2", packet.getElement().getChildCDataStaticStr(new String[] { "message", "body" }));
+				Assert.assertEquals("Retrieved incorrect messsage", "Test message 2",
+									packet.getElement().getChildCDataStaticStr(new String[]{"message", "body"}));
 				count.incrementAndGet();
 			}
 
@@ -168,9 +175,72 @@ public class MongoHistoryProviderTest {
 			public void write(Packet packet, AsyncCallback callback) {
 				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
 			}
-			
+
 		});
 		Assert.assertEquals("Not retrieved correct number of messages", 0, count.get());
 	}
-	
+
+	@Test
+	public void testSchemaUpgrade_JidComparison() throws Exception {
+		BareJID jid = BareJID.bareJIDInstance("TeSt@muc.example");
+		byte[] rid = provider.generateId(jid.toString());
+
+		String body = "Test JID Comparison";
+
+		Document dto = new Document("room_jid_id", rid).append("room_jid", jid.toString())
+				.append("event_type", 1)
+				.append("sender_jid", test1.toString()).append("sender_nickname", "Test 1")
+				.append("body", body).append("public_event", room.getConfig().isLoggingEnabled());
+		dto.append("timestamp", new Date());
+		provider.historyCollection.insertOne(dto);
+
+		provider.getHistoryMessages(room, test1, null, 1, null, null, new PacketWriter() {
+
+			@Override
+			public void write(Collection<Packet> packets) {
+				for (Packet p : packets) {
+					write(p);
+				}
+			}
+
+			@Override
+			public void write(Packet packet) {
+				assertTrue("There should be no messages found!", false);
+			}
+
+			@Override
+			public void write(Packet packet, AsyncCallback callback) {
+				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+			}
+
+		});
+
+		provider.updateSchema();
+
+		final AtomicInteger count = new AtomicInteger(0);
+		provider.getHistoryMessages(room, test1, null, 1, null, null, new PacketWriter() {
+
+			@Override
+			public void write(Collection<Packet> packets) {
+				for (Packet p : packets) {
+					write(p);
+				}
+			}
+
+			@Override
+			public void write(Packet packet) {
+				Assert.assertEquals("Retrieved incorrect messsage", body,
+									packet.getElement().getChildCDataStaticStr(new String[]{"message", "body"}));
+				count.incrementAndGet();
+			}
+
+			@Override
+			public void write(Packet packet, AsyncCallback callback) {
+				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+			}
+
+		});
+
+		Assert.assertEquals("Not retrieved correct number of messages", 1, count.get());
+	}
 }

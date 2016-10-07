@@ -1,8 +1,8 @@
 /*
- * MongoMessageArchiveRepositoryTest.java
+ * RepositoryVersionAware.java
  *
  * Tigase Jabber/XMPP Server - MongoDB support
- * Copyright (C) 2004-2014 "Tigase, Inc." <office@tigase.com>
+ * Copyright (C) 2004-2016 "Tigase, Inc." <office@tigase.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -21,15 +21,11 @@
  */
 package tigase.mongodb;
 
-import org.junit.FixMethodOrder;
-import org.junit.runners.MethodSorters;
-
 /**
- *
- * @author andrzej
+ * Created by andrzej on 06.10.2016.
  */
-// Do not remove - it imports tests from Tigase Message Archiving project
-@FixMethodOrder(MethodSorters.NAME_ASCENDING)
-public class MongoMessageArchiveRepositoryTest extends tigase.archive.db.AbstractMessageArchiveRepositoryTest {
+public interface RepositoryVersionAware {
+
+	void updateSchema() throws Exception;
 
 }

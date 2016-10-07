@@ -27,6 +27,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 import tigase.archive.QueryCriteria;
@@ -37,6 +38,7 @@ import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
+import tigase.mongodb.RepositoryVersionAware;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
 import tigase.xml.SimpleParser;
@@ -59,12 +61,17 @@ import java.util.regex.Pattern;
 
 import static tigase.mongodb.Helper.collectionExists;
 
+import static  com.mongodb.client.model.Accumulators.*;
+import static com.mongodb.client.model.Aggregates.*;
+
 /**
  *
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class MongoMessageArchiveRepository extends AbstractMessageArchiveRepository<QueryCriteria,MongoDataSource> {
+public class MongoMessageArchiveRepository
+		extends AbstractMessageArchiveRepository<QueryCriteria, MongoDataSource>
+		implements RepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoMessageArchiveRepository.class.getCanonicalName());
 
@@ -87,19 +94,10 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	private boolean storePlaintextBody = true;
 
 
-	private static byte[] generateId(BareJID user) throws TigaseDBException {
-		try {
-			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.toString().toLowerCase().getBytes());
-		} catch (NoSuchAlgorithmException ex) {
-			throw new TigaseDBException("Should not happen!!", ex);
-		}
-	}		
-
 	private static byte[] generateId(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.toLowerCase().getBytes());
+			return md.digest(user.getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
@@ -124,11 +122,13 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 	
 	@Override
-	public void archiveMessage(BareJID owner, JID buddy, Direction direction, Date timestamp, Element msg, Set<String> tags) {
+	public void archiveMessage(BareJID ownerJid, JID buddyJid, Direction direction, Date timestamp, Element msg, Set<String> tags) {
 		try {
+			String owner = ownerJid.toString().toLowerCase();
+			String buddy = buddyJid.getBareJID().toString().toLowerCase();
 			byte[] oid = generateId(owner);
-			byte[] bid = generateId(buddy.getBareJID());
-			byte[] odid = generateId(owner.getDomain());
+			byte[] bid = generateId(buddy);
+			byte[] odid = generateId(ownerJid.getDomain());
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
@@ -137,10 +137,10 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			Document crit = new Document("owner_id", oid).append("buddy_id", bid)
 					.append("ts", timestamp).append("hash", hash);
 			
-			Document dto = new Document("owner", owner.toString().toLowerCase()).append("owner_id", oid)
+			Document dto = new Document("owner", owner).append("owner_id", oid)
 					.append("owner_domain_id", odid)
-					.append("buddy", buddy.getBareJID().toString().toLowerCase()).append("buddy_id", bid)
-					.append("buddy_res", buddy.getResource())
+					.append("buddy", buddy).append("buddy_id", bid)
+					.append("buddy_res", buddyJid.getResource())
 					// adding date for aggregation
 					.append("date", date)
 					.append("direction", direction.name()).append("ts", timestamp)
@@ -153,11 +153,11 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 					dto.append("body", body);
 				}
 			}
-			
+
 			if (tags != null && !tags.isEmpty()) {
 				dto.append("tags", new ArrayList<String>(tags));
 			}
-			
+
 			msgsCollection.updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem adding new entry to DB: " + msg, ex);
@@ -345,10 +345,12 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 
 	@Override
-	public void removeItems(BareJID owner, String withJid, Date start, Date end) throws TigaseDBException {
+	public void removeItems(BareJID ownerJid, String withJid, Date start, Date end) throws TigaseDBException {
 		try {
+			String owner = ownerJid.toString().toLowerCase();
+			String with = withJid.toLowerCase();
 			byte[] oid = generateId(owner);
-			byte[] wid = generateId(withJid);
+			byte[] wid = generateId(with);
 			
 			if (start == null) {
 				start = new Date(0);
@@ -358,8 +360,8 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			}
 			
 			Document dateCrit = new Document("$gte", start).append("$lte", end);
-			Document crit = new Document("owner_id", oid).append("owner", owner.toString().toLowerCase())
-					.append("buddy_id", wid).append("buddy", withJid.toLowerCase()).append("ts", dateCrit);
+			Document crit = new Document("owner_id", oid).append("owner", owner)
+					.append("buddy_id", wid).append("buddy", with).append("ts", dateCrit);
 			
 			msgsCollection.deleteMany(crit);
 		} catch (Exception ex) {
@@ -368,13 +370,14 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 	
 	@Override
-	public List<String> getTags(BareJID owner, String startsWith, QueryCriteria criteria) throws TigaseDBException {
+	public List<String> getTags(BareJID ownerJid, String startsWith, QueryCriteria criteria) throws TigaseDBException {
 		List<String> results = new ArrayList<String>();
 		try {
+			String owner = ownerJid.toString().toLowerCase();
 			byte[] oid = generateId(owner);
 			Pattern tagPattern = Pattern.compile(startsWith + ".*");
 			List<Document> pipeline = new ArrayList<Document>();
-			Document crit = new Document("owner_id", oid).append("owner", owner.toString());
+			Document crit = new Document("owner_id", oid).append("owner", owner);
 			Document matchCrit = new Document("$match", crit);
 			pipeline.add(matchCrit);
 			pipeline.add(new Document("$unwind", "$tags"));
@@ -421,9 +424,9 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 	}
 
 	public Document createCriteriaDocument(QueryCriteria query) throws TigaseDBException {
-		BareJID owner = query.getQuestionerJID().getBareJID();
+		String owner = query.getQuestionerJID().getBareJID().toString().toLowerCase();
 		byte[] oid = generateId(owner);
-		Document crit = new Document("owner_id", oid).append("owner", owner.toString().toLowerCase());
+		Document crit = new Document("owner_id", oid).append("owner", owner);
 
 		if (query.getWith() != null) {
 			String withJid = query.getWith().getBareJID().toString().toLowerCase();
@@ -444,7 +447,7 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			crit.append("ts", dateCrit);
 		}
 		if (!query.getTags().isEmpty()) {
-			crit.append("tags", new Document("$all", new ArrayList<String>(query.getTags())));
+			crit.append("tags", new Document("$all", new ArrayList<>(query.getTags())));
 		}
 
 		if (!query.getContains().isEmpty()) {
@@ -464,6 +467,41 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 		}
 
 		return crit;
+	}
+
+	@Override
+	public void updateSchema() throws TigaseDBException {
+		List<Bson> ownerAggregation = Arrays.asList(group("$owner_id", first("owner", "$owner")));
+		for (Document doc : msgsCollection.aggregate(ownerAggregation).allowDiskUse(true).batchSize(1000)) {
+			String oldOwner = (String) doc.get("owner");
+			String newOwner = oldOwner.toLowerCase();
+
+			if (oldOwner.equals(newOwner))
+				continue;
+
+			byte[] oldOwnerId = ((Binary) doc.get("_id")).getData();
+			byte[] newOwnerId = generateId(newOwner);
+
+			Document update = new Document("owner_id", newOwnerId).append("owner", newOwner);
+			msgsCollection.updateMany(new Document("owner_id", oldOwnerId).append("owner", oldOwner),
+									  new Document("$set", update));
+		}
+
+		List<Bson> buddyAggregation = Arrays.asList(group("$buddy_id", first("buddy", "$buddy")));
+		for (Document doc : msgsCollection.aggregate(buddyAggregation).allowDiskUse(true).batchSize(1000)) {
+			String oldBuddy = (String) doc.get("buddy");
+			String newBuddy = oldBuddy.toLowerCase();
+
+			if (oldBuddy.equals(newBuddy))
+				continue;
+
+			byte[] oldBuddyId = ((Binary) doc.get("_id")).getData();
+			byte[] newBuddyId = generateId(newBuddy);
+
+			Document update = new Document("buddy_id", newBuddyId).append("buddy", newBuddy);
+			msgsCollection.updateMany(new Document("buddy_id", oldBuddyId).append("buddy", oldBuddy),
+									  new Document("$set", update));
+		}
 	}
 
 	public static class Item<Q extends QueryCriteria> implements MessageArchiveRepository.Item {

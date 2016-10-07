@@ -25,11 +25,14 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.bson.types.Binary;
 import tigase.component.PacketWriter;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
+import tigase.mongodb.RepositoryVersionAware;
 import tigase.muc.Affiliation;
 import tigase.muc.Room;
 import tigase.muc.RoomConfig;
@@ -42,12 +45,11 @@ import tigase.xmpp.JID;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 import java.util.logging.Level;
 
+import static com.mongodb.client.model.Accumulators.first;
+import static com.mongodb.client.model.Aggregates.group;
 import static tigase.mongodb.Helper.collectionExists;
 
 
@@ -56,22 +58,23 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class MongoHistoryProvider extends AbstractHistoryProvider<MongoDataSource> {
-
+public class MongoHistoryProvider
+		extends AbstractHistoryProvider<MongoDataSource>
+		implements RepositoryVersionAware {
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "muc_history";
 	
 	private MongoDatabase db;
-	private MongoCollection<Document> historyCollection;
+	protected MongoCollection<Document> historyCollection;
 
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 	
-	private byte[] generateId(BareJID user) throws TigaseDBException {
+	protected byte[] generateId(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.toString().getBytes());
+			return md.digest(user.getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
@@ -88,8 +91,9 @@ public class MongoHistoryProvider extends AbstractHistoryProvider<MongoDataSourc
 	@Override
 	public void addMessage(Room room, Element message, String body, JID senderJid, String senderNickname, Date time) {
 		try {
-			byte[] rid = generateId(room.getRoomJID());
-			Document dto = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString())
+			String roomJidStr = room.getRoomJID().toString().toLowerCase();
+			byte[] rid = generateId(roomJidStr);
+			Document dto = new Document("room_jid_id", rid).append("room_jid", roomJidStr)
 					.append("event_type", 1)
 					.append("sender_jid", senderJid.toString()).append("sender_nickname", senderNickname)
 					.append("body", body).append("public_event", room.getConfig().isLoggingEnabled());
@@ -122,14 +126,15 @@ public class MongoHistoryProvider extends AbstractHistoryProvider<MongoDataSourc
 				&& (recipientAffiliation == Affiliation.owner || recipientAffiliation == Affiliation.admin);
 
 		try {
-			byte[] rid = generateId(room.getRoomJID());
+			String roomJidStr = room.getRoomJID().toString().toLowerCase();
+			byte[] rid = generateId(roomJidStr);
 			int maxMessages = room.getConfig().getMaxHistory();
 			int limit = maxstanzas != null ? Math.min(maxMessages, maxstanzas) : maxMessages;
 			if (since == null && seconds != null && maxstanzas == null) {
 				since = new Date(new Date().getTime() - seconds * 1000);
 			}
 			
-			Document crit = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
+			Document crit = new Document("room_jid_id", rid).append("room_jid", roomJidStr);
 			if (since != null) {
 				crit.append("timestamp", new Document("$gte", since));
 				Document order = new Document("timestamp", 1);
@@ -164,8 +169,9 @@ public class MongoHistoryProvider extends AbstractHistoryProvider<MongoDataSourc
 	@Override
 	public void removeHistory(Room room) {
 		try {
-			byte[] rid = generateId(room.getRoomJID());
-			Document crit = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString());
+			String roomJidStr = room.getRoomJID().toString().toLowerCase();
+			byte[] rid = generateId(roomJidStr);
+			Document crit = new Document("room_jid_id", rid).append("room_jid", roomJidStr);
 			db.getCollection(HISTORY_COLLECTION).deleteMany(crit);
 		} catch (Exception ex) {
 			if (log.isLoggable(Level.SEVERE))
@@ -185,6 +191,26 @@ public class MongoHistoryProvider extends AbstractHistoryProvider<MongoDataSourc
 
 		historyCollection.createIndex(new Document("room_jid_id", 1));
 		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
+	}
+
+	@Override
+	public void updateSchema() throws TigaseDBException {
+		List<Bson> aggregationQuery = Arrays.asList(group("$room_jid_id", first("room_jid", "$room_jid")));
+		for (Document doc : historyCollection.aggregate(aggregationQuery).batchSize(100)) {
+			String oldRoomJid = (String) doc.get("room_jid");
+			String newRoomJid = oldRoomJid.toLowerCase();
+
+			if (oldRoomJid.equals(newRoomJid)) {
+				continue;
+			}
+
+			byte[] oldRoomJidId = ((Binary) doc.get("_id")).getData();
+			byte[] newRoomJidId = generateId(newRoomJid);
+			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId).append("room_jid", oldRoomJid),
+										 new Document("$set",
+													  new Document("room_jid_id", newRoomJidId)
+															  .append("room_jid", newRoomJid)));
+		}
 	}
 
 	private Packet createMessage(BareJID roomJid, JID senderJID, Document dto, boolean addRealJids) throws TigaseStringprepException {
