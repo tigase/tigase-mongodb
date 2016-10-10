@@ -183,7 +183,7 @@ public class MongoHistoryProviderTest {
 	@Test
 	public void testSchemaUpgrade_JidComparison() throws Exception {
 		BareJID jid = BareJID.bareJIDInstance("TeSt@muc.example");
-		byte[] rid = provider.generateId(jid.toString());
+		byte[] rid = provider.calculateHash(jid.toString());
 
 		String body = "Test JID Comparison";
 

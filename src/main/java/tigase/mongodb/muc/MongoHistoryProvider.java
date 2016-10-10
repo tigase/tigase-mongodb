@@ -71,15 +71,19 @@ public class MongoHistoryProvider
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 	
-	protected byte[] generateId(String user) throws TigaseDBException {
+	protected byte[] generateId(BareJID user) throws TigaseDBException {
+		return calculateHash(user.toString().toLowerCase());
+	}
+
+	protected byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
 			return md.digest(user.getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
-	}	
-	
+	}
+
 	@Override
 	public void addJoinEvent(Room room, Date date, JID senderJID, String nickName) {
 	}
@@ -91,9 +95,8 @@ public class MongoHistoryProvider
 	@Override
 	public void addMessage(Room room, Element message, String body, JID senderJid, String senderNickname, Date time) {
 		try {
-			String roomJidStr = room.getRoomJID().toString().toLowerCase();
-			byte[] rid = generateId(roomJidStr);
-			Document dto = new Document("room_jid_id", rid).append("room_jid", roomJidStr)
+			byte[] rid = generateId(room.getRoomJID());
+			Document dto = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString())
 					.append("event_type", 1)
 					.append("sender_jid", senderJid.toString()).append("sender_nickname", senderNickname)
 					.append("body", body).append("public_event", room.getConfig().isLoggingEnabled());
@@ -126,15 +129,14 @@ public class MongoHistoryProvider
 				&& (recipientAffiliation == Affiliation.owner || recipientAffiliation == Affiliation.admin);
 
 		try {
-			String roomJidStr = room.getRoomJID().toString().toLowerCase();
-			byte[] rid = generateId(roomJidStr);
+			byte[] rid = generateId(room.getRoomJID());
 			int maxMessages = room.getConfig().getMaxHistory();
 			int limit = maxstanzas != null ? Math.min(maxMessages, maxstanzas) : maxMessages;
 			if (since == null && seconds != null && maxstanzas == null) {
 				since = new Date(new Date().getTime() - seconds * 1000);
 			}
 			
-			Document crit = new Document("room_jid_id", rid).append("room_jid", roomJidStr);
+			Document crit = new Document("room_jid_id", rid);
 			if (since != null) {
 				crit.append("timestamp", new Document("$gte", since));
 				Document order = new Document("timestamp", 1);
@@ -169,9 +171,8 @@ public class MongoHistoryProvider
 	@Override
 	public void removeHistory(Room room) {
 		try {
-			String roomJidStr = room.getRoomJID().toString().toLowerCase();
-			byte[] rid = generateId(roomJidStr);
-			Document crit = new Document("room_jid_id", rid).append("room_jid", roomJidStr);
+			byte[] rid = generateId(room.getRoomJID());
+			Document crit = new Document("room_jid_id", rid);
 			db.getCollection(HISTORY_COLLECTION).deleteMany(crit);
 		} catch (Exception ex) {
 			if (log.isLoggable(Level.SEVERE))
@@ -197,19 +198,17 @@ public class MongoHistoryProvider
 	public void updateSchema() throws TigaseDBException {
 		List<Bson> aggregationQuery = Arrays.asList(group("$room_jid_id", first("room_jid", "$room_jid")));
 		for (Document doc : historyCollection.aggregate(aggregationQuery).batchSize(100)) {
-			String oldRoomJid = (String) doc.get("room_jid");
-			String newRoomJid = oldRoomJid.toLowerCase();
+			String roomJid = (String) doc.get("room_jid");
 
-			if (oldRoomJid.equals(newRoomJid)) {
+			byte[] oldRoomJidId = ((Binary) doc.get("_id")).getData();
+			byte[] newRoomJidId = calculateHash(roomJid.toString().toLowerCase());
+
+			if (Arrays.equals(oldRoomJidId, newRoomJidId)) {
 				continue;
 			}
 
-			byte[] oldRoomJidId = ((Binary) doc.get("_id")).getData();
-			byte[] newRoomJidId = generateId(newRoomJid);
-			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId).append("room_jid", oldRoomJid),
-										 new Document("$set",
-													  new Document("room_jid_id", newRoomJidId)
-															  .append("room_jid", newRoomJid)));
+			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId),
+										 new Document("$set", new Document("room_jid_id", newRoomJidId)));
 		}
 	}
 

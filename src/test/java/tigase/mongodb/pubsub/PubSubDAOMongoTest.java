@@ -298,13 +298,13 @@ public class PubSubDAOMongoTest {
 
 		INodeMeta meta = dao.getNodeMeta(serviceJid, nodeName);
 		assertNotNull(meta);
-		assertEquals(meta.getCreator().toString(), serviceJid.toString().toLowerCase());
+		assertEquals(serviceJid.toString(), meta.getCreator().toString());
 
 		assertNotNull(dao.getItem(serviceJid, meta.getNodeId(), itemId));
 
 		UsersAffiliation affil = dao.getNodeAffiliations(serviceJid, meta.getNodeId()).getSubscriberAffiliation(serviceJid);
 		assertNotNull(affil);
-		assertEquals(serviceJid.toString().toLowerCase(), affil.getJid().toString());
+		assertEquals(serviceJid.toString(), affil.getJid().toString());
 
 		assertEquals(Subscription.subscribed, dao.getNodeSubscriptions(serviceJid, meta.getNodeId()).getSubscription(serviceJid));
 

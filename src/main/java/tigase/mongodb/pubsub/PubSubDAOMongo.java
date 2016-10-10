@@ -89,65 +89,54 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public void updateSchema() throws RepositoryException {
 		for (Document oldServiceDoc : serviceJidsCollection.find().batchSize(100)) {
-			String oldServiceJid = (String) oldServiceDoc.get("service_jid");
-			String newServiceJid = oldServiceJid.toLowerCase();
+			String serviceJid = (String) oldServiceDoc.get("service_jid");
 
-			if (oldServiceJid.equals(newServiceJid)) {
+			byte[] oldServiceId = ((Binary) oldServiceDoc.get("_id")).getData();
+			byte[] newServiceId = calculateHash(serviceJid.toLowerCase());
+
+			if (Arrays.equals(oldServiceId, newServiceId)) {
 				continue;
 			}
 
-			byte[] oldServiceId = ((Binary) oldServiceDoc.get("_id")).getData();
-			byte[] newServiceId = generateId(newServiceJid);
-
-			Document updateQuery = new Document("service_jid_id", oldServiceId).append("service_jid", oldServiceJid);
-			Document updateValues = new Document("service_jid_id", newServiceId).append("service_jid", newServiceJid);
+			Document updateQuery = new Document("service_jid_id", oldServiceId);
+			Document updateValues = new Document("service_jid_id", newServiceId);
 
 			Arrays.asList(nodesCollection, itemsCollecton, subscriptionsCollection, affiliationsCollection)
 					.forEach((col) -> {
 						col.updateMany(updateQuery, new Document("$set", updateValues));
 					});
 
-			Document newServiceDoc = new Document(oldServiceDoc).append("_id", newServiceId)
-					.append("service_jid", newServiceJid);
+			Document newServiceDoc = new Document(oldServiceDoc).append("_id", newServiceId);
 
-			serviceJidsCollection.insertOne(newServiceDoc);
 			serviceJidsCollection.findOneAndDelete(oldServiceDoc);
+			serviceJidsCollection.insertOne(newServiceDoc);
 		}
 
-		for (Document node : nodesCollection.find().projection(include("owner")).batchSize(1000)) {
-			String oldOwner = (String) node.get("owner");
-			String newOwner = oldOwner.toLowerCase();
+		for (Document oldAffil : affiliationsCollection.find().projection(include("jid", "jid_id")).batchSize(1000)) {
+			String jid = (String) oldAffil.get("jid");
 
-			if (oldOwner.equals(newOwner)) {
+			byte[] oldJidId = ((Binary) oldAffil.get("jid_id")).getData();
+			byte[] newJidId = calculateHash(jid.toLowerCase());
+
+			if (Arrays.equals(oldJidId, newJidId)) {
 				continue;
 			}
 
-			nodesCollection.updateOne(node, new Document("$set", new Document("owner", newOwner)));
-		}
-
-		for (Document oldAffil : affiliationsCollection.find().projection(include("jid")).batchSize(1000)) {
-			String oldJid = (String) oldAffil.get("jid");
-			String newJid = oldJid.toLowerCase();
-
-			if (oldJid.equals(newJid))
-				continue;;
-
-			byte[] newJidId = generateId(newJid);
-
-			Document update = new Document("jid_id", newJidId).append("jid", newJid);
+			Document update = new Document("jid_id", newJidId);
 			affiliationsCollection.updateOne(oldAffil, new Document("$set", update));
 		}
 
-		for (Document oldSubs : subscriptionsCollection.find().projection(include("jid")).batchSize(1000)) {
-			String oldJid = (String) oldSubs.get("jid");
-			String newJid = oldJid.toLowerCase();
+		for (Document oldSubs : subscriptionsCollection.find().projection(include("jid", "jid_id")).batchSize(1000)) {
+			String jid = (String) oldSubs.get("jid");
 
-			if (oldJid.equals(newJid))
-				continue;;
+			byte[] oldJidId = ((Binary) oldSubs.get("jid_id")).getData();
+			byte[] newJidId = calculateHash(jid.toLowerCase());
 
-			byte[] newJidId = generateId(newJid);
+			if (Arrays.equals(oldJidId, newJidId)) {
+				continue;
+			}
 
-			Document update = new Document("jid_id", newJidId).append("jid", newJid);
+			Document update = new Document("jid_id", newJidId);
 			subscriptionsCollection.updateOne(oldSubs, new Document("$set", update));
 		}
 	}
@@ -197,7 +186,11 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 		itemsCollecton.createIndex(new Document("node_id", 1).append("creation_date", 1));
 	}
 
-	private byte[] generateId(String in) throws RepositoryException {
+	private byte[] generateId(BareJID jid) throws RepositoryException {
+		return calculateHash(jid.toString().toLowerCase());
+	}
+
+	private byte[] calculateHash(String in) throws RepositoryException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
 			return md.digest(in.getBytes());
@@ -207,10 +200,9 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	}	
 
 	private void ensureServiceJid(BareJID serviceJid) throws RepositoryException {
-		String serviceId = serviceJid.toString().toLowerCase();
-		byte[] id = generateId(serviceId);
+		byte[] id = generateId(serviceJid);
 		try {
-			Document crit = new Document("_id", id).append("service_jid", serviceId);
+			Document crit = new Document("_id", id).append("service_jid", serviceJid.toString());
 			serviceJidsCollection.updateOne(crit, new Document("$set", crit), new UpdateOptions().upsert(true));
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not create entry for service jid " + serviceJid, ex);
@@ -218,11 +210,10 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	}
 	
 	private Document createCrit(BareJID serviceJid, String nodeName) throws RepositoryException {
-		String serviceId = serviceJid.toString().toLowerCase();
-		byte[] serviceJidId = generateId(serviceId);
-		Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId);
+		byte[] serviceJidId = generateId(serviceJid);
+		Document crit = new Document("service_jid_id", serviceJidId);
 		if (nodeName != null) {
-			byte[] nodeNameId = generateId(nodeName);
+			byte[] nodeNameId = calculateHash(nodeName);
 			crit.append("node_name_id", nodeNameId).append("node_name", nodeName);
 		}
 		else {
@@ -246,8 +237,11 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 			}
 			
 			Document dto = createCrit(serviceJid, nodeName);
-			dto.append("owner", ownerJid.toString().toLowerCase()).append("type", nodeType.name())
-					.append("configuration", serializedNodeConfig).append("creation_time", new Date());
+			dto.append("service_jid", serviceJid.toString())
+					.append("owner", ownerJid.toString())
+					.append("type", nodeType.name())
+					.append("configuration", serializedNodeConfig)
+					.append("creation_time", new Date());
 			if (collectionId != null) {
 				dto.append("collection", collectionId);
 			}
@@ -286,9 +280,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public String[] getAllNodesList(BareJID serviceJid) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId);
+			byte[] serviceJidId = generateId(serviceJid);
+			Document crit = new Document("service_jid_id", serviceJidId);
 			//List<String> result = db.getCollection(PUBSUB_NODES).distinct("node_name", crit);
 			List<String> result = readAllValuesForField(nodesCollection, "node_name", crit);
 			return result.toArray(new String[result.size()]);
@@ -438,9 +431,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 			return new String[0];
 		}
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId);
+			byte[] serviceJidId = generateId(serviceJid);
+			Document crit = new Document("service_jid_id", serviceJidId);
 			if (collectionId != null) {
 				crit.append("collection", collectionId);
 			} else {
@@ -483,13 +475,12 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public Map<String, UsersAffiliation> getUserAffiliations(BareJID serviceJid, BareJID jid) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			String jidStr = jid.toString().toLowerCase();
-			byte[] jidId = generateId(jidStr);
-			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId)
-					.append("jid_id", jidId).append("jid", jidStr);
-			FindIterable<Document> cursor = affiliationsCollection.find(crit).projection(new Document("node_name", 1).append("affiliation", 1)).batchSize(batchSize);
+			byte[] serviceJidId = generateId(serviceJid);
+			byte[] jidId = generateId(jid);
+			Document crit = new Document("service_jid_id", serviceJidId).append("jid_id", jidId);
+			FindIterable<Document> cursor = affiliationsCollection.find(crit)
+					.projection(new Document("node_name", 1).append("affiliation", 1))
+					.batchSize(batchSize);
 			
 			Map<String, UsersAffiliation> result = new HashMap<String, UsersAffiliation>();
 			for (Document it : cursor) {
@@ -506,13 +497,12 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public Map<String, UsersSubscription> getUserSubscriptions(BareJID serviceJid, BareJID jid) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			String jidStr = jid.toString().toLowerCase();
-			byte[] jidId = generateId(jidStr);
-			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId)
-					.append("jid_id", jidId).append("jid", jidStr);
-			FindIterable<Document> cursor = subscriptionsCollection.find(crit).projection(new Document("node_name", 1).append("subscription", 1).append("subscription_id", 1)).batchSize(batchSize);
+			byte[] serviceJidId = generateId(serviceJid);
+			byte[] jidId = generateId(jid);
+			Document crit = new Document("service_jid_id", serviceJidId).append("jid_id", jidId);
+			FindIterable<Document> cursor = subscriptionsCollection.find(crit)
+					.projection(new Document("node_name", 1).append("subscription", 1).append("subscription_id", 1))
+					.batchSize(batchSize);
 			
 			Map<String, UsersSubscription> result = new HashMap<String, UsersSubscription>();
 			for (Document it : cursor) {
@@ -530,13 +520,12 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public void removeAllFromRootCollection(BareJID serviceJid) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId);
+			byte[] serviceJidId = generateId(serviceJid);
+			Document crit = new Document("service_jid_id", serviceJidId);
 			itemsCollecton.deleteMany(crit);
 			affiliationsCollection.deleteMany(crit);
 			subscriptionsCollection.deleteMany(crit);
-			crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId);
+			crit = new Document("service_jid_id", serviceJidId);
 			nodesCollection.deleteMany(crit);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not remove all nodes from root collection", ex);
@@ -550,12 +539,10 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public void removeNodeSubscription(BareJID serviceJid, ObjectId nodeId, BareJID jid) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			String jidStr = jid.toString().toLowerCase();
-			byte[] jidId = generateId(jidStr);
-			Document crit = new Document("node_id", nodeId).append("service_jid_id", serviceJidId).append("service_jid", serviceId)
-					.append("jid_id", jidId).append("jid", jidStr);
+			byte[] serviceJidId = generateId(serviceJid);
+			byte[] jidId = generateId(jid);
+			Document crit = new Document("node_id", nodeId).append("service_jid_id", serviceJidId)
+					.append("jid_id", jidId);
 
 			subscriptionsCollection.deleteMany(crit);
 		} catch (MongoException ex) {
@@ -568,10 +555,9 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 		try {
 			removeAllFromRootCollection(serviceJid);
 
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] jidId = generateId(serviceId);
-			serviceJidsCollection.deleteOne(new Document("_id", jidId).append("service_jid", serviceId));
-			Document crit = new Document("jid_id", jidId).append("jid", serviceId);
+			byte[] jidId = generateId(serviceJid);
+			serviceJidsCollection.deleteOne(new Document("_id", jidId));
+			Document crit = new Document("jid_id", jidId);
 			affiliationsCollection.deleteMany(crit);
 			subscriptionsCollection.deleteMany(crit);
 		} catch (MongoException ex) {
@@ -600,17 +586,17 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public void updateNodeAffiliation(BareJID serviceJid, ObjectId nodeId, String nodeName, UsersAffiliation userAffiliation) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			String jid = userAffiliation.getJid().toString().toLowerCase();
-			byte[] jidId = generateId(jid);
-			Document crit = new Document("node_id", nodeId).append("service_jid_id", serviceJidId).append("service_jid", serviceId)
-					.append("jid_id", jidId).append("jid", jid);
+			byte[] serviceJidId = generateId(serviceJid);
+			byte[] jidId = generateId(userAffiliation.getJid());
+			Document crit = new Document("node_id", nodeId).append("service_jid_id", serviceJidId)
+					.append("jid_id", jidId);
 			if (userAffiliation.getAffiliation() == Affiliation.none) {
 				affiliationsCollection.deleteMany(crit);
 			} else {
 				affiliationsCollection.updateOne(crit, new Document("$setOnInsert", new Document("node_name", nodeName))
-					.append("$set", new Document("affiliation", userAffiliation.getAffiliation().name())), new UpdateOptions().upsert(true));
+						.append("$set", new Document("affiliation", userAffiliation.getAffiliation().name())
+								.append("service_jid", serviceJid.toString()).append("jid", userAffiliation.getJid().toString())),
+						new UpdateOptions().upsert(true));
 			}
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not update user affiliations", ex);
@@ -620,17 +606,18 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public void updateNodeSubscription(BareJID serviceJid, ObjectId nodeId, String nodeName, UsersSubscription userSubscription) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			String jid = userSubscription.getJid().toString().toLowerCase();
-			byte[] jidId = generateId(jid);
-			Document crit = new Document("node_id", nodeId).append("service_jid_id", serviceJidId).append("service_jid", serviceId)
-					.append("jid_id", jidId).append("jid", jid);
+			byte[] serviceJidId = generateId(serviceJid);
+			byte[] jidId = generateId(userSubscription.getJid());
+			Document crit = new Document("node_id", nodeId).append("service_jid_id", serviceJidId)
+					.append("jid_id", jidId);
 			if (userSubscription.getSubscription() == Subscription.none) {
 				subscriptionsCollection.deleteMany(crit);
 			} else {
 				subscriptionsCollection.updateOne(crit, new Document("$setOnInsert", new Document("node_name", nodeName))
-						.append("$set", new Document("subscription", userSubscription.getSubscription().name()).append("subscription_id", userSubscription.getSubid())),
+						.append("$set", new Document("subscription", userSubscription.getSubscription().name())
+								.append("subscription_id", userSubscription.getSubid())
+								.append("service_jid", serviceJid.toString())
+								.append("jid", userSubscription.getJid().toString())),
 						new UpdateOptions().upsert(true));
 			}
 		} catch (MongoException ex) {
@@ -641,9 +628,8 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	@Override
 	public void writeItem(BareJID serviceJid, ObjectId nodeId, long timeInMilis, String id, String publisher, Element item) throws RepositoryException {
 		try {
-			String serviceId = serviceJid.toString().toLowerCase();
-			byte[] serviceJidId = generateId(serviceId);
-			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceId);
+			byte[] serviceJidId = generateId(serviceJid);
+			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceJid.toString());
 			crit.append("node_id", nodeId).append("item_id", id);
 			Document dto = new Document("$set", new Document("update_date", new Date()).append("publisher", publisher).append("item", item.toString()));
 			dto.append("$setOnInsert", new Document("creation_date", new Date()));

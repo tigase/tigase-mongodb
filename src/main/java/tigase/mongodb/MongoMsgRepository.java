@@ -26,6 +26,7 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 import tigase.db.*;
 import tigase.kernel.beans.config.ConfigField;
@@ -34,6 +35,7 @@ import tigase.server.amp.db.MsgRepository;
 import tigase.util.DateTimeFormatter;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
+import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 import tigase.xmpp.XMPPResourceConnection;
 
@@ -76,12 +78,12 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	public int deleteMessagesToJID( List<String> db_ids, XMPPResourceConnection session ) throws UserNotFoundException {
 
 		int count = 0;
-		String to = null;
+		BareJID to = null;
 		try {
-			to = session.getBareJID().toString().toLowerCase();
+			to = session.getBareJID();
 			byte[] toHash = generateId(to);
 
-			Document crit = new Document("to_hash", toHash).append("to", to);
+			Document crit = new Document("to_hash", toHash);
 
 
 			if ( db_ids == null || db_ids.size() == 0 ){
@@ -151,15 +153,14 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	}
 
 	@Override
-	public Map<Enum, Long> getMessagesCount( JID toJid ) throws UserNotFoundException {
+	public Map<Enum, Long> getMessagesCount( JID to ) throws UserNotFoundException {
 
 		Map<Enum, Long> result = new HashMap<>( MSG_TYPES.values().length );
 
 		try {
-			String to = toJid.getBareJID().toString().toLowerCase();
-			byte[] toHash = generateId( to );
+			byte[] toHash = generateId( to.getBareJID() );
 
-			Document crit = new Document( "to_hash", toHash ).append( "to", to );
+			Document crit = new Document( "to_hash", toHash );
 
 			for ( MSG_TYPES type : MSG_TYPES.values() ) {
 				long count = msgHistoryCollection.count( crit.append( "msg_type", type.toString() ) );
@@ -175,16 +176,15 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	}
 
 	@Override
-	public List<Element> getMessagesList( JID toJid ) throws UserNotFoundException {
+	public List<Element> getMessagesList( JID to ) throws UserNotFoundException {
 		// TODO: temporary
 
 		List<Element> result = new LinkedList<Element>();
 
 		try {
-			String to = toJid.getBareJID().toString().toLowerCase();
-			byte[] toHash = generateId( to );
+			byte[] toHash = generateId( to.getBareJID() );
 
-			Document crit = new Document( "to_hash", toHash ).append( "to", to );
+			Document crit = new Document( "to_hash", toHash );
 
 			FindIterable<Document> cursor = msgHistoryCollection.find( crit ).batchSize(batchSize);
 
@@ -204,7 +204,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 				if (msgId != null && messageType != null && messageType != MSG_TYPES.none && sender != null) {
 					Element item = new Element("item", new String[]{"jid", "node", "type", "name"},
-											   new String[]{to, msgId, messageType.name(), sender});
+											   new String[]{to.getBareJID().toString(), msgId, messageType.name(), sender});
 					result.add(item);
 				}
 
@@ -273,13 +273,13 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 		// TODO: temporary
 
 		Queue<Element> result = null;
-		String to = null;
+		BareJID to = null;
 		
 		try {
-			to = session.getBareJID().toString().toLowerCase();
+			to = session.getBareJID();
 			byte[] toHash = generateId(to);
 
-			Document crit = new Document("to_hash", toHash).append("to", to);
+			Document crit = new Document("to_hash", toHash);
 
 			FindIterable<Document> cursor = msgHistoryCollection.find(crit).batchSize(batchSize);
 
@@ -316,18 +316,16 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	}
 
 	@Override
-	public boolean storeMessage(JID fromJid, JID toJid, Date expired, Element msg, NonAuthUserRepository userRepo) throws UserNotFoundException {
+	public boolean storeMessage(JID from, JID to, Date expired, Element msg, NonAuthUserRepository userRepo) throws UserNotFoundException {
 		try {
-			String from = fromJid.getBareJID().toString().toLowerCase();
-			byte[] fromHash = generateId(from);
-			String to = toJid.getBareJID().toString().toLowerCase();
-			byte[] toHash = generateId(to);
+			byte[] fromHash = generateId(from.getBareJID());
+			byte[] toHash = generateId(to.getBareJID());
 			
 			Document crit = new Document("from_hash", fromHash).append("to_hash", toHash)
-					.append("from", from).append("to", to);
+					.append("from", from.toString()).append("to", to.toString());
 			
 			long count = msgHistoryCollection.count(crit);
-			long msgs_store_limit = getMsgsStoreLimit(toJid.getBareJID(), userRepo);
+			long msgs_store_limit = getMsgsStoreLimit(to.getBareJID(), userRepo);
 			if (msgs_store_limit <= count) {
 				if (log.isLoggable(Level.FINEST)) {
 					log.log(Level.FINEST, "Message store limit ({0}) exceeded for message: {1}",
@@ -374,20 +372,20 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	@Override
 	public void updateSchema() throws TigaseDBException {
 		for (Document doc : msgHistoryCollection.find().batchSize(1000).projection(fields(include("_id", "from", "to")))) {
-			String oldFrom = (String) doc.get("from");
-			String oldTo = (String) doc.get("to");
+			String from = (String) doc.get("from");
+			String to = (String) doc.get("to");
 
-			String newFrom = oldFrom.toLowerCase();
-			String newTo = oldTo.toLowerCase();
+			byte[] oldToHash = ((Binary) doc.get("to_hash")).getData();
+			byte[] oldFromHash = ((Binary) doc.get("from_hash")).getData();
 
-			if (oldFrom.equals(newFrom) && oldTo.equals(newTo))
+			byte[] newToHash = calculateHash(to.toLowerCase());
+			byte[] newFromHash = calculateHash(from.toLowerCase());
+
+			if (Arrays.equals(oldFromHash, newFromHash) && Arrays.equals(oldToHash, newToHash)) {
 				continue;
+			}
 
-			byte[] newToHash = generateId(newTo);
-			byte[] newFromHash = generateId(newFrom);
-
-			Document update = new Document("from", newFrom).append("to", newTo)
-					.append("from_hash", newFromHash)
+			Document update = new Document("from_hash", newFromHash)
 					.append("to_hash", newToHash);
 
 			msgHistoryCollection.updateOne(new Document("_id", doc.get("_id")), new Document("$set", update));
@@ -483,11 +481,15 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 		
 		earliestOffline = Long.MAX_VALUE;		
 	}
-		
-	private byte[] generateId(String user) throws TigaseDBException {
+
+	private byte[] generateId(BareJID user) throws TigaseDBException {
+		return  calculateHash(user.toString().toLowerCase());
+	}
+
+	private byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.getBytes());
+			return md.digest(user.toLowerCase().getBytes());
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}

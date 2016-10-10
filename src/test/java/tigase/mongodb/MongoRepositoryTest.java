@@ -243,7 +243,7 @@ public class MongoRepositoryTest {
 	@Test
 	public void testSchemaUpgrade_JidComparison() throws Exception {
 		BareJID jid = BareJID.bareJIDInstance(UUID.randomUUID().toString() + "_TEST", "example.com");
-		byte[] uid = repo.generateId(jid.toString());
+		byte[] uid = repo.calculateHash(jid.toString());
 
 		Document userDoc = new Document("_id", uid).append(MongoRepository.ID_KEY, jid.toString()).append(MongoRepository.DOMAIN_KEY, jid.getDomain());
 		dataSource.getDatabase().getCollection(MongoRepository.USERS_COLLECTION).insertOne(userDoc);

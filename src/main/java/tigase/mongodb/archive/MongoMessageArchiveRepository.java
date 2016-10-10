@@ -59,6 +59,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
+import static com.mongodb.client.model.Sorts.ascending;
+import static com.mongodb.client.model.Sorts.orderBy;
 import static tigase.mongodb.Helper.collectionExists;
 
 import static  com.mongodb.client.model.Accumulators.*;
@@ -94,7 +96,11 @@ public class MongoMessageArchiveRepository
 	private boolean storePlaintextBody = true;
 
 
-	private static byte[] generateId(String user) throws TigaseDBException {
+	private static byte[] generateId(BareJID user) throws TigaseDBException {
+		return calculateHash(user.toString().toLowerCase());
+	}
+
+	private static byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
 			return md.digest(user.getBytes());
@@ -124,11 +130,9 @@ public class MongoMessageArchiveRepository
 	@Override
 	public void archiveMessage(BareJID ownerJid, JID buddyJid, Direction direction, Date timestamp, Element msg, Set<String> tags) {
 		try {
-			String owner = ownerJid.toString().toLowerCase();
-			String buddy = buddyJid.getBareJID().toString().toLowerCase();
-			byte[] oid = generateId(owner);
-			byte[] bid = generateId(buddy);
-			byte[] odid = generateId(ownerJid.getDomain());
+			byte[] oid = generateId(ownerJid);
+			byte[] bid = generateId(buddyJid.getBareJID());
+			byte[] odid = calculateHash(ownerJid.getDomain());
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
@@ -136,15 +140,18 @@ public class MongoMessageArchiveRepository
 			
 			Document crit = new Document("owner_id", oid).append("buddy_id", bid)
 					.append("ts", timestamp).append("hash", hash);
-			
-			Document dto = new Document("owner", owner).append("owner_id", oid)
+
+			Document dto = new Document("owner", ownerJid.toString()).append("owner_id", oid)
 					.append("owner_domain_id", odid)
-					.append("buddy", buddy).append("buddy_id", bid)
+					.append("buddy", buddyJid.getBareJID().toString())
+					.append("buddy_id", bid)
 					.append("buddy_res", buddyJid.getResource())
 					// adding date for aggregation
 					.append("date", date)
-					.append("direction", direction.name()).append("ts", timestamp)
-					.append("type", type).append("msg", msg.toString())
+					.append("direction", direction.name())
+					.append("ts", timestamp)
+					.append("type", type)
+					.append("msg", msg.toString())
 					.append("hash", hash);
 			
 			if (storePlaintextBody) {
@@ -167,7 +174,7 @@ public class MongoMessageArchiveRepository
 	@Override
 	public void deleteExpiredMessages(BareJID owner, LocalDateTime before) throws TigaseDBException {
 		try {
-			byte[] odid = generateId(owner.getDomain());
+			byte[] odid = calculateHash(owner.getDomain());
 			long timestamp_long = before.toEpochSecond(ZoneOffset.UTC) * 1000;
 			Document crit = new Document("owner_domain_id", odid)
 					.append("ts", new Document("$lt", new Date(timestamp_long)));
@@ -188,20 +195,16 @@ public class MongoMessageArchiveRepository
 	@Override
 	public void queryCollections(QueryCriteria query, CollectionHandler<QueryCriteria> collectionHandler) throws TigaseDBException {
 		try {
-			Document crit = createCriteriaDocument(query);
+			Bson crit = createCriteriaDocument(query);
 			List<Element> results = new ArrayList<Element>();
 
-			List<Document> pipeline = new ArrayList<Document>();
-			Document matchCrit = new Document("$match", crit);
+			List<Bson> pipeline = new ArrayList<>();
+			Bson matchCrit = match(crit);
 			pipeline.add(matchCrit);
-			Document groupCrit = new Document("$group", 
-					new Document("_id", 
-						new Document("ts", "$date").append("buddy", "$buddy"))
-					.append("ts", new Document("$min", "$ts"))
-					.append("buddy", new Document("$min", "$buddy"))
-			);
+			Bson groupCrit = group(new Document("ts", "$date").append("buddy", "$buddy"), min("ts", "$ts"),
+								   min("buddy", "$buddy"));
 			pipeline.add(groupCrit);
-			Document countCrit = new Document("$group", new Document("_id", 1).append("count", new Document("$sum", 1)));
+			Bson countCrit = group(1, sum("count", 1));
 			pipeline.add(countCrit);
 
 			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true);
@@ -218,16 +221,13 @@ public class MongoMessageArchiveRepository
 
 				pipeline.add(matchCrit);
 				pipeline.add(groupCrit);
-				Document sort = new Document("$sort", new Document("ts", 1).append("buddy", 1));
+				Bson sort = sort(orderBy(ascending("ts", "buddy")));
 				pipeline.add(sort);
 
 				if (query.getRsm().getIndex() > 0) {
-					Document skipCrit = new Document("$skip", query.getRsm().getIndex());
-					pipeline.add(skipCrit);
+					pipeline.add(skip(query.getRsm().getIndex()));
 				}
-				
-				Document limitCrit = new Document("$limit", query.getRsm().getMax());
-				pipeline.add(limitCrit);
+				pipeline.add(limit(query.getRsm().getMax()));
 
 				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
 				
@@ -345,12 +345,10 @@ public class MongoMessageArchiveRepository
 	}
 
 	@Override
-	public void removeItems(BareJID ownerJid, String withJid, Date start, Date end) throws TigaseDBException {
+	public void removeItems(BareJID owner, String with, Date start, Date end) throws TigaseDBException {
 		try {
-			String owner = ownerJid.toString().toLowerCase();
-			String with = withJid.toLowerCase();
 			byte[] oid = generateId(owner);
-			byte[] wid = generateId(with);
+			byte[] wid = calculateHash(with.toLowerCase());
 			
 			if (start == null) {
 				start = new Date(0);
@@ -360,8 +358,8 @@ public class MongoMessageArchiveRepository
 			}
 			
 			Document dateCrit = new Document("$gte", start).append("$lte", end);
-			Document crit = new Document("owner_id", oid).append("owner", owner)
-					.append("buddy_id", wid).append("buddy", with).append("ts", dateCrit);
+			Document crit = new Document("owner_id", oid)
+					.append("buddy_id", wid).append("ts", dateCrit);
 			
 			msgsCollection.deleteMany(crit);
 		} catch (Exception ex) {
@@ -370,14 +368,13 @@ public class MongoMessageArchiveRepository
 	}
 	
 	@Override
-	public List<String> getTags(BareJID ownerJid, String startsWith, QueryCriteria criteria) throws TigaseDBException {
+	public List<String> getTags(BareJID owner, String startsWith, QueryCriteria criteria) throws TigaseDBException {
 		List<String> results = new ArrayList<String>();
 		try {
-			String owner = ownerJid.toString().toLowerCase();
 			byte[] oid = generateId(owner);
 			Pattern tagPattern = Pattern.compile(startsWith + ".*");
 			List<Document> pipeline = new ArrayList<Document>();
-			Document crit = new Document("owner_id", oid).append("owner", owner);
+			Document crit = new Document("owner_id", oid);
 			Document matchCrit = new Document("$match", crit);
 			pipeline.add(matchCrit);
 			pipeline.add(new Document("$unwind", "$tags"));
@@ -424,14 +421,13 @@ public class MongoMessageArchiveRepository
 	}
 
 	public Document createCriteriaDocument(QueryCriteria query) throws TigaseDBException {
-		String owner = query.getQuestionerJID().getBareJID().toString().toLowerCase();
+		BareJID owner = query.getQuestionerJID().getBareJID();
 		byte[] oid = generateId(owner);
-		Document crit = new Document("owner_id", oid).append("owner", owner);
+		Document crit = new Document("owner_id", oid);
 
 		if (query.getWith() != null) {
-			String withJid = query.getWith().getBareJID().toString().toLowerCase();
-			byte[] wid = generateId(withJid);
-			crit.append("buddy_id", wid).append("buddy", withJid);
+			byte[] wid = generateId(query.getWith().getBareJID());
+			crit.append("buddy_id", wid);
 		}
 
 		Document dateCrit = null;
@@ -473,34 +469,30 @@ public class MongoMessageArchiveRepository
 	public void updateSchema() throws TigaseDBException {
 		List<Bson> ownerAggregation = Arrays.asList(group("$owner_id", first("owner", "$owner")));
 		for (Document doc : msgsCollection.aggregate(ownerAggregation).allowDiskUse(true).batchSize(1000)) {
-			String oldOwner = (String) doc.get("owner");
-			String newOwner = oldOwner.toLowerCase();
-
-			if (oldOwner.equals(newOwner))
-				continue;
-
+			String owner = (String) doc.get("owner");
 			byte[] oldOwnerId = ((Binary) doc.get("_id")).getData();
-			byte[] newOwnerId = generateId(newOwner);
+			byte[] newOwnerId = calculateHash(owner.toLowerCase());
 
-			Document update = new Document("owner_id", newOwnerId).append("owner", newOwner);
-			msgsCollection.updateMany(new Document("owner_id", oldOwnerId).append("owner", oldOwner),
-									  new Document("$set", update));
+			if (Arrays.equals(oldOwnerId, newOwnerId)) {
+				continue;
+			}
+
+			Document update = new Document("owner_id", newOwnerId);
+			msgsCollection.updateMany(new Document("owner_id", oldOwnerId), new Document("$set", update));
 		}
 
 		List<Bson> buddyAggregation = Arrays.asList(group("$buddy_id", first("buddy", "$buddy")));
 		for (Document doc : msgsCollection.aggregate(buddyAggregation).allowDiskUse(true).batchSize(1000)) {
-			String oldBuddy = (String) doc.get("buddy");
-			String newBuddy = oldBuddy.toLowerCase();
-
-			if (oldBuddy.equals(newBuddy))
-				continue;
-
+			String buddy = (String) doc.get("buddy");
 			byte[] oldBuddyId = ((Binary) doc.get("_id")).getData();
-			byte[] newBuddyId = generateId(newBuddy);
+			byte[] newBuddyId = calculateHash(buddy.toLowerCase());
 
-			Document update = new Document("buddy_id", newBuddyId).append("buddy", newBuddy);
-			msgsCollection.updateMany(new Document("buddy_id", oldBuddyId).append("buddy", oldBuddy),
-									  new Document("$set", update));
+			if (Arrays.equals(oldBuddyId, newBuddyId)) {
+				continue;
+			}
+
+			Document update = new Document("buddy_id", newBuddyId);
+			msgsCollection.updateMany(new Document("buddy_id", oldBuddyId), new Document("$set", update));
 		}
 	}
 
