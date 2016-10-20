@@ -21,6 +21,7 @@
  */
 package tigase.mongodb.muc;
 
+import com.mongodb.MongoNamespace;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -63,7 +64,8 @@ public class MongoHistoryProvider
 		implements RepositoryVersionAware {
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
-	private static final String HISTORY_COLLECTION = "muc_history";
+	private static final String HISTORY_COLLECTION = "tig_muc_room_history";
+	private static final String HISTORY_COLLECTION_OLD = "muc_history";
 	
 	private MongoDatabase db;
 	protected MongoCollection<Document> historyCollection;
@@ -186,7 +188,11 @@ public class MongoHistoryProvider
 		db = dataSource.getDatabase();
 
 		if (!collectionExists(db, HISTORY_COLLECTION)) {
-			db.createCollection(HISTORY_COLLECTION);
+			if (collectionExists(db, HISTORY_COLLECTION_OLD)) {
+				db.getCollection(HISTORY_COLLECTION_OLD).renameCollection(new MongoNamespace(db.getName(), HISTORY_COLLECTION));
+			} else {
+				db.createCollection(HISTORY_COLLECTION);
+			}
 		}
 		historyCollection = db.getCollection(HISTORY_COLLECTION);
 
