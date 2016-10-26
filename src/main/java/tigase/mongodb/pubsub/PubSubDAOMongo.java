@@ -47,6 +47,7 @@ import tigase.util.TigaseStringprepException;
 import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -61,8 +62,9 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implements RepositoryVersionAware {
-	
+
 	private static final String JID_HASH_ALG = "SHA-256";
+	private static final Charset UTF8 = Charset.forName("UTF-8");
 
 	private static final int DEF_BATCH_SIZE = 100;
 
@@ -193,7 +195,7 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 	private byte[] calculateHash(String in) throws RepositoryException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(in.getBytes());
+			return md.digest(in.getBytes(UTF8));
 		} catch (NoSuchAlgorithmException ex) {
 			throw new RepositoryException("Should not happen!!", ex);
 		}

@@ -49,6 +49,7 @@ import tigase.xmpp.JID;
 import tigase.xmpp.RSM;
 import tigase.xmpp.mam.MAMRepository;
 
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
@@ -83,7 +84,8 @@ public class MongoMessageArchiveRepository
 	private static final String[] MSG_BODY_PATH = { "message", "body" };	
 	private static final String MSGS_COLLECTION = "tig_ma_msgs";
 	private static final String STORE_PLAINTEXT_BODY_KEY = "store-plaintext-body";
-	
+	private static final Charset UTF8 = Charset.forName("UTF-8");
+
 	private static final SimpleParser parser      = SingletonFactory.getParserInstance();
 	
 	private MongoDatabase db;
@@ -103,7 +105,7 @@ public class MongoMessageArchiveRepository
 	private static byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.getBytes());
+			return md.digest(user.getBytes(UTF8));
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}

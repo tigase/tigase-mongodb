@@ -38,6 +38,7 @@ import tigase.kernel.beans.config.ConfigField;
 import tigase.util.StringUtilities;
 import tigase.xmpp.BareJID;
 
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -71,6 +72,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	protected static final String ID_KEY = "user_id";
 	protected static final String DOMAIN_KEY = "domain";
 	private static final String AUTO_CREATE_USER_KEY = "autoCreateUser=";
+	private static final Charset UTF8 = Charset.forName("UTF-8");
 
 	private MongoDataSource dataSource;
 	private MongoDatabase db;
@@ -90,7 +92,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	protected byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.getBytes());
+			return md.digest(user.getBytes(UTF8));
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}

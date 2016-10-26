@@ -36,6 +36,7 @@ import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
@@ -60,6 +61,8 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 
 	private static final String MSG_BROADCAST_COLLECTION = "msg_broadcast";
 	private static final String MSG_BROADCAST_RECP_COLLECTION = "msg_broadcast_recp";
+
+	private static final Charset UTF8 = Charset.forName("UTF-8");
 
 	private MongoDatabase db;
 	private MongoCollection<Document> broadcastMsgCollection;
@@ -145,7 +148,7 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 	private byte[] generateId(BareJID user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.toString().getBytes());
+			return md.digest(user.toString().getBytes(UTF8));
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}

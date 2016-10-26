@@ -39,6 +39,7 @@ import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 import tigase.xmpp.XMPPResourceConnection;
 
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -67,7 +68,9 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	private static final DateTimeFormatter dt = new DateTimeFormatter();
 
 	private static final Comparator<Document> MSG_COMPARATOR = (o1, o2) -> ((Date) o1.get("ts")).compareTo((Date) o2.get("ts"));
-	
+
+	private static final Charset UTF8 = Charset.forName("UTF-8");
+
 	private MongoCollection<Document> msgHistoryCollection;
 	private MongoDatabase db;
 
@@ -489,7 +492,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	private byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.toLowerCase().getBytes());
+			return md.digest(user.getBytes(UTF8));
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}

@@ -44,6 +44,7 @@ import tigase.xml.Element;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
 
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -66,7 +67,8 @@ public class MongoHistoryProvider
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "tig_muc_room_history";
 	private static final String HISTORY_COLLECTION_OLD = "muc_history";
-	
+	private static final Charset UTF8 = Charset.forName("UTF-8");
+
 	private MongoDatabase db;
 	protected MongoCollection<Document> historyCollection;
 
@@ -80,7 +82,7 @@ public class MongoHistoryProvider
 	protected byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.getBytes());
+			return md.digest(user.getBytes(UTF8));
 		} catch (NoSuchAlgorithmException ex) {
 			throw new TigaseDBException("Should not happen!!", ex);
 		}
