@@ -137,7 +137,7 @@
 							<goal>jar</goal>
 						</goals>
 						<configuration>
-							<source>1.7</source>
+							<source>1.8</source>
 							<aggregate>true</aggregate>
 							<quiet>true</quiet>
 							<finalName>${project.artifactId}-${project.version}-b${gitVersion}</finalName>
@@ -197,36 +197,6 @@
 					<storepass>${sign-storepass}</storepass>
 					<keypass>${sign-keypass}</keypass>
 					<!--<verbose>true</verbose>-->
-				</configuration>
-			</plugin>		 
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-jarsigner-plugin</artifactId>
-				<version>1.4</version>
-				<executions>
-					<execution>
-						<id>sign</id>
-						<goals>
-							<goal>sign</goal>
-						</goals>
-					</execution>
-				</executions>
-				<configuration>
-					<archiveDirectory>${project.basedir}</archiveDirectory>
-					<includes>
-						<include>target/tigase*.?ar</include>
-						<include>jars/tigase*.?ar</include>
-					</includes>
-					<processMainArtifact>false</processMainArtifact>
-					<processAttachedArtifacts>false</processAttachedArtifacts>
-					<tsa>http://timestamp.comodoca.com/rfc3161</tsa>
-					<skip>${sign-skip}</skip>
-
-					<keystore>${sign-keystore}</keystore>
-					<alias>${sign-alias}</alias>
-					<storepass>${sign-storepass}</storepass>
-					<keypass>${sign-keypass}</keypass>
-					<verbose>${verbose-log}</verbose>
 				</configuration>
 			</plugin>
 		</plugins>
