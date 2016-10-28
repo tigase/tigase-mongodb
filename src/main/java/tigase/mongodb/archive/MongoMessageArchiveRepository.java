@@ -96,10 +96,17 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
-			byte[] hash = generateHashOfMessage(direction, msg, null);
+			byte[] hash = generateHashOfMessage(direction, msg, timestamp, null);
 			
 			BasicDBObject crit = new BasicDBObject("owner_id", oid).append("buddy_id", bid)
-					.append("ts", timestamp).append("hash", hash);
+					.append("hash", hash);
+
+			if (type == null || !"groupchat".equals(type)) {
+				crit.append("ts", timestamp);
+			} else {
+				crit.append("ts", new BasicDBObject("$gte", new Date(timestamp.getTime() - (30 * 60 * 1000)))
+						.append("$lte", new Date(timestamp.getTime() + (30 * 60 * 1000))));
+			}
 			
 			BasicDBObject dto = new BasicDBObject("owner", owner.toString()).append("owner_id", oid)
 					.append("owner_domain_id", odid)
@@ -426,7 +433,8 @@ public class MongoMessageArchiveRepository extends AbstractMessageArchiveReposit
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1));
 			msgs.createIndex(new BasicDBObject("body", "text"));
 			msgs.createIndex(new BasicDBObject("owner_id", 1).append("tags", 1));
-			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("ts", 1).append("hash", 1));
+			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("hash", 1));
+			msgs.createIndex(new BasicDBObject("owner_id", 1).append("buddy_id", 1).append("hash", 1).append("ts", 1));
 			msgs.createIndex(new BasicDBObject("owner_domain_id", 1).append("ts", 1));
 		} catch (UnknownHostException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
