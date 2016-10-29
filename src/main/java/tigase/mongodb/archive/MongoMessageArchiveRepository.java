@@ -123,7 +123,7 @@ public class MongoMessageArchiveRepository
 		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1));
 		msgsCollection.createIndex(new Document("body", "text"));
 		msgsCollection.createIndex(new Document("owner_id", 1).append("tags", 1));
-		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1).append("hash", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("hash", 1).append("ts", 1));
 		msgsCollection.createIndex(new Document("owner_domain_id", 1).append("ts", 1));
 
 		this.db = db;
@@ -138,11 +138,18 @@ public class MongoMessageArchiveRepository
 			
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
-			byte[] hash = generateHashOfMessage(direction, msg, null);
+			byte[] hash = generateHashOfMessage(direction, msg, timestamp, null);
 			
 			Document crit = new Document("owner_id", oid).append("buddy_id", bid)
-					.append("ts", timestamp).append("hash", hash);
+					.append("hash", hash);
 
+			if (type == null || !"groupchat".equals(type)) {
+				crit.append("ts", timestamp);
+			} else {
+				crit.append("ts", new Document("$gte", new Date(timestamp.getTime() - (30 * 60 * 1000)))
+						.append("$lte", new Date(timestamp.getTime() + (30 * 60 * 1000))));
+			}
+			
 			Document dto = new Document("owner", ownerJid.toString()).append("owner_id", oid)
 					.append("owner_domain_id", odid)
 					.append("buddy", buddyJid.getBareJID().toString())
