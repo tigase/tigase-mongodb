@@ -29,6 +29,7 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import org.bson.types.ObjectId;
+import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.server.amp.db.MsgBroadcastRepository;
@@ -51,6 +52,7 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 04.10.2016.
  */
+@Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId,MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger(MongoMsgBroadcastRepository.class.getCanonicalName());
