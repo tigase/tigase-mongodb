@@ -25,10 +25,12 @@ import com.mongodb.MongoNamespace;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 import tigase.component.PacketWriter;
+import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.kernel.beans.config.ConfigField;
@@ -41,8 +43,12 @@ import tigase.muc.history.AbstractHistoryProvider;
 import tigase.server.Packet;
 import tigase.util.TigaseStringprepException;
 import tigase.xml.Element;
+import tigase.xmpp.Authorization;
 import tigase.xmpp.BareJID;
 import tigase.xmpp.JID;
+import tigase.xmpp.mam.MAMRepository;
+import tigase.xmpp.mam.Query;
+import tigase.xmpp.mam.QueryImpl;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
@@ -62,7 +68,7 @@ import static tigase.mongodb.Helper.collectionExists;
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 public class MongoHistoryProvider
 		extends AbstractHistoryProvider<MongoDataSource>
-		implements RepositoryVersionAware {
+		implements RepositoryVersionAware, MAMRepository {
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "tig_muc_room_history";
@@ -74,7 +80,7 @@ public class MongoHistoryProvider
 
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
-	
+
 	protected byte[] generateId(BareJID user) throws TigaseDBException {
 		return calculateHash(user.toString().toLowerCase());
 	}
@@ -219,6 +225,87 @@ public class MongoHistoryProvider
 										 new Document("$set", new Document("room_jid_id", newRoomJidId)));
 		}
 	}
+
+	private Long getItemPosition(String msgId, Bson filter) throws ComponentException {
+		if (msgId == null) {
+			return null;
+		}
+		try {
+			Date ts = new Date(Long.parseLong(msgId));
+
+			return historyCollection.count(Filters.and(filter, Filters.lt("timestamp", ts)));
+		} catch (NumberFormatException ex) {
+			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Not found message with id = " + msgId);
+		}
+	}
+
+	@Override
+	public void queryItems(Query query, ItemHandler itemHandler) throws TigaseDBException, ComponentException {
+		try {
+			byte[] rid = generateId(query.getComponentJID().getBareJID());
+
+			Document crit = new Document("room_jid_id", rid);
+			List<Bson> filters = new ArrayList<>();
+			filters.add(Filters.eq("room_jid_id", rid));
+
+			if (query.getStart() != null) {
+				filters.add(Filters.gte("timestamp", query.getStart()));
+			}
+			if (query.getEnd() != null) {
+				filters.add(Filters.lte("timestamp", query.getEnd()));
+			}
+			if (query.getWith() != null) {
+				filters.add(Filters.eq("sender_nickname", query.getWith().toString()));
+			}
+
+			Bson filter = Filters.and(filters);
+			long count = historyCollection.count(filter);
+
+			Long after = getItemPosition(query.getRsm().getAfter(), filter);
+			Long before = getItemPosition(query.getRsm().getBefore(), filter);
+
+			AbstractHistoryProvider.calculateOffsetAndPosition(query, (int) count, before == null ? null : before.intValue(), after == null ? null : after.intValue());
+
+			Document order = new Document("timestamp", 1);
+			FindIterable<Document> cursor = historyCollection.find(filter).sort(order).skip(query.getRsm().getIndex()).limit(query.getRsm().getMax());
+			for (Document dto : cursor) {
+				String sender_nickname = (String) dto.get("sender_nickname");
+				String msg = (String) dto.get("msg");
+				String body = (String) dto.get("body");
+				Date timestamp = (Date) dto.get("timestamp");
+
+				Element msgEl = createMessageElement(query.getComponentJID().getBareJID(), query.getQuestionerJID(), sender_nickname, msg, body);
+				Item item = new Item() {
+					@Override
+					public String getId() {
+						return String.valueOf(timestamp.getTime());
+					}
+
+					@Override
+					public Element getMessage() {
+						return msgEl;
+					}
+
+					@Override
+					public Date getTimestamp() {
+						return timestamp;
+					}
+				};
+				itemHandler.itemFound(query, item);
+			}
+		} catch (Exception ex) {
+			if (log.isLoggable(Level.SEVERE))
+				log.log(Level.SEVERE, "Can't get history", ex);
+			throw new RuntimeException(ex);
+		}
+
+	}
+
+	@Override
+	public Query newQuery() {
+		return new QueryImpl();
+	}
+
 
 	private Packet createMessage(BareJID roomJid, JID senderJID, Document dto, boolean addRealJids) throws TigaseStringprepException {
 		String sender_nickname = (String) dto.get("sender_nickname");
