@@ -244,7 +244,6 @@ public class MongoHistoryProvider
 		try {
 			byte[] rid = generateId(query.getComponentJID().getBareJID());
 
-			Document crit = new Document("room_jid_id", rid);
 			List<Bson> filters = new ArrayList<>();
 			filters.add(Filters.eq("room_jid_id", rid));
 

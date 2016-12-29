@@ -25,32 +25,37 @@ import com.mongodb.MongoException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 import org.bson.types.ObjectId;
+import tigase.component.exceptions.ComponentException;
 import tigase.component.exceptions.RepositoryException;
 import tigase.db.Repository;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
 import tigase.mongodb.RepositoryVersionAware;
-import tigase.pubsub.AbstractNodeConfig;
-import tigase.pubsub.Affiliation;
-import tigase.pubsub.NodeType;
-import tigase.pubsub.Subscription;
+import tigase.pubsub.*;
+import tigase.pubsub.modules.mam.Query;
 import tigase.pubsub.repository.*;
 import tigase.pubsub.repository.stateless.NodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
 import tigase.pubsub.repository.stateless.UsersSubscription;
 import tigase.util.TigaseStringprepException;
 import tigase.xml.Element;
+import tigase.xmpp.Authorization;
 import tigase.xmpp.BareJID;
+import tigase.xmpp.mam.MAMRepository;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.function.Consumer;
 
 import static com.mongodb.client.model.Projections.include;
 import static tigase.mongodb.Helper.collectionExists;
@@ -61,7 +66,7 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implements RepositoryVersionAware {
+public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource,tigase.pubsub.modules.mam.Query> implements RepositoryVersionAware {
 
 	private static final String JID_HASH_ALG = "SHA-256";
 	private static final Charset UTF8 = Charset.forName("UTF-8");
@@ -516,6 +521,77 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource> implemen
 			return result;
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not retrieve user affiliations", ex);
+		}
+	}
+
+	private Long getItemPosition(String msgId, Bson filter, String timestampField) throws ComponentException {
+		if (msgId == null) {
+			return null;
+		}
+
+		ObjectId id = new ObjectId(msgId);
+		Document doc = itemsCollecton.find(Filters.eq("_id", id)).projection(Projections.include(timestampField)).first();
+		if (doc == null) {
+			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Not found item with id = " + msgId);
+		}
+		Date ts = doc.getDate(timestampField);
+
+		return itemsCollecton.count(Filters.and(filter, Filters.lt(timestampField, ts)));
+	}
+
+	@Override
+	public void queryItems(Query query, List<ObjectId> nodesIds,
+						   MAMRepository.ItemHandler<Query, IPubSubRepository.Item> itemHandler)
+			throws RepositoryException, ComponentException {
+		try {
+			List<Bson> filters = new ArrayList<>();
+			filters.add(Filters.in("node_id", nodesIds));
+			String timestampField = query.getOrder() == CollectionItemsOrdering.byCreationDate ? "creation_date" : "update_date";
+			if (query.getStart() != null) {
+				filters.add(Filters.gte(timestampField, query.getStart()));
+			}
+			if (query.getEnd() != null) {
+				filters.add(Filters.lte(timestampField, query.getEnd()));
+			}
+			if (query.getWith() != null) {
+				filters.add(Filters.eq("publisher", query.getWith().toString()));
+			}
+
+			Bson filter = Filters.and(filters);
+			long count = itemsCollecton.count(filter);
+
+			Long after = getItemPosition(query.getRsm().getAfter(), filter, timestampField);
+			Long before = getItemPosition(query.getRsm().getBefore(), filter, timestampField);
+
+			calculateOffsetAndPosition(query, (int) count, before == null ? null : before.intValue(),
+															   after == null ? null : after.intValue());
+
+			Map<ObjectId,String> nodeNames = new HashMap<>();
+			nodesCollection.find(Filters.in("_id", nodesIds)).projection(Projections.include("node_name")).forEach(
+					(Consumer<? super Document>) document -> nodeNames.put(document.getObjectId("_id"), document.getString("node_name")));
+
+			Document order = new Document(timestampField, 1);
+			FindIterable<Document> cursor = itemsCollecton.find(filter)
+					.sort(order)
+					.skip(query.getRsm().getIndex())
+					.limit(query.getRsm().getMax());
+			for (Document dto : cursor) {
+				ObjectId id = dto.getObjectId("_id");
+				ObjectId nodeId = dto.getObjectId("node_id");
+				String nodeName = nodeNames.get(nodeId);
+				String itemId = dto.getString("item_id");
+				Date creationDate = dto.getDate(timestampField);
+				Element itemEl = itemDataToElement(dto.getString("item"));
+
+				itemHandler.itemFound(query, new Item(nodeName, nodeId, itemId, creationDate, itemEl) {
+					@Override
+					public String getId() {
+						return id.toString();
+					}
+				});
+			}
+		} catch (Exception ex) {
+			throw new RepositoryException(ex);
 		}
 	}
 

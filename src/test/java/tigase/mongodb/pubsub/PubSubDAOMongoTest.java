@@ -22,6 +22,7 @@
 package tigase.mongodb.pubsub;
 
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.junit.FixMethodOrder;
@@ -129,6 +130,15 @@ public class PubSubDAOMongoTest extends AbstractPubSubDAOTest {
 
 	protected MongoDatabase getDatabase() {
 		return ((MongoDataSource) dataSource).getDatabase();
+	}
+
+	@Override
+	protected String getMAMID(Object nodeId, String itemId) {
+		Document dto = getDatabase().getCollection("tig_pubsub_items")
+				.find(Filters.and(Filters.eq("node_id", nodeId), Filters.eq("item_id", itemId)))
+				.first();
+		return dto.getObjectId("_id")
+				.toString();
 	}
 
 	private byte[] generateId(String in) throws RepositoryException {
