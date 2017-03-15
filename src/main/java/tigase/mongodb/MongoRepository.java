@@ -142,7 +142,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 					UpdateResult result = usersCollection.updateOne(
 							new BasicDBObject("_id", id),
 							new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
-					if (result == null || result.getModifiedCount() == 1)
+					if (result == null || result.getModifiedCount() <= 0)
 						throw new UserNotFoundException("User " + user + " not found in repository");
 				} catch (MongoException ex) {
 					throw new TigaseDBException("Error retrieving password for user " + user, ex);
@@ -172,8 +172,13 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 			userDto.append("_id", id);
 			usersCollection.insertOne(userDto);
 			return id;
-		} catch (DuplicateKeyException ex) {
-			throw new UserExistsException("Error adding user to repository: ", ex);
+		} catch (MongoWriteException ex) {
+			if (ex.getError() != null) {
+				if(ex.getError().getCategory() == ErrorCategory.DUPLICATE_KEY) {
+					throw new UserExistsException("Error adding user to repository: ", ex);
+				}
+			}
+			throw new TigaseDBException("Error adding user to repository: ", ex);
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Error adding user to repository: ", ex);
 		}
@@ -540,7 +545,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	@Override
 	public String getPassword(BareJID user)
 			throws UserNotFoundException, TigaseDBException {
-		return null;
+		return auth.getPassword(user);
 	}
 
 	@Override
