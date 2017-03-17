@@ -353,6 +353,11 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	}
 
 	@Override
+	public void loggedIn(BareJID jid) throws TigaseDBException {
+		auth.loggedIn(jid);
+	}
+
+	@Override
 	public boolean userExists(BareJID user) {
 		try {
 			BasicDBObject userDto = new BasicDBObject();
