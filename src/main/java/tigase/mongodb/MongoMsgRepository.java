@@ -22,10 +22,16 @@
 package tigase.mongodb;
 
 import com.mongodb.MongoException;
+import com.mongodb.MongoNamespace;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.result.DeleteResult;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 import tigase.db.*;
@@ -45,6 +51,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import static com.mongodb.client.model.Projections.fields;
 import static com.mongodb.client.model.Projections.include;
@@ -63,11 +70,11 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 	private static final int DEF_BATCH_SIZE = 100;
 
-	private static final String MSG_HISTORY_COLLECTION = "msg_history";
+	private static final String MSG_HISTORY_COLLECTION = "tig_offline_messages";
 
 	private static final DateTimeFormatter dt = new DateTimeFormatter();
 
-	private static final Comparator<Document> MSG_COMPARATOR = (o1, o2) -> ((Date) o1.get("ts")).compareTo((Date) o2.get("ts"));
+	//private static final Comparator<Document> MSG_COMPARATOR = (o1, o2) -> ((Date) o1.get("ts")).compareTo((Date) o2.get("ts"));
 
 	private static final Charset UTF8 = Charset.forName("UTF-8");
 
@@ -86,26 +93,19 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			to = session.getBareJID();
 			byte[] toHash = generateId(to);
 
-			Document crit = new Document("to_hash", toHash);
+			Bson crit = Filters.eq("to_hash", toHash);
 
 
 			if ( db_ids == null || db_ids.size() == 0 ){
 				msgHistoryCollection.deleteMany(crit);
 				
 			} else {
+				crit = Filters.and(crit, Filters.in("_id", db_ids.stream()
+						.map(id -> new ObjectId(id))
+						.collect(Collectors.toList())));
 
-				FindIterable<Document> cursor = msgHistoryCollection.find( crit );
-
-				for ( Document it : cursor ) {
-
-					if ( it.containsKey( "ts" ) ){
-						String msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
-						if ( db_ids.contains( msgId ) ){
-							msgHistoryCollection.deleteOne( it );
-							count++;
-						}
-					}
-				}
+				DeleteResult result = msgHistoryCollection.deleteMany(crit );
+				count = (int) result.getDeletedCount();
 			}
 
  		} catch (Exception ex) {
@@ -189,16 +189,16 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 			Document crit = new Document( "to_hash", toHash );
 
-			FindIterable<Document> cursor = msgHistoryCollection.find( crit ).batchSize(batchSize);
+			FindIterable<Document> cursor = msgHistoryCollection.find(crit)
+					.projection(Projections.include("_id", "from", "msg_type"))
+					.sort(Sorts.ascending("ts"))
+					.batchSize(batchSize);
 
 			for ( Document it : cursor ) {
-				String msgId = null;
-				if ( it.containsKey( "ts" ) ){
-					msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
-				}
+				String msgId = it.getObjectId("_id").toHexString();
 				String sender = null;
-				if ( it.containsKey( "to" ) ){
-					sender =  (String) it.get( "to" ) ;
+				if ( it.containsKey( "from" ) ){
+					sender =  (String) it.get( "from" ) ;
 				}
 				MSG_TYPES messageType = MSG_TYPES.none;
 				if ( it.containsKey( "msg_type" ) ){
@@ -225,7 +225,11 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 		db = dataSource.getDatabase();
 
 		if (!collectionExists(db, MSG_HISTORY_COLLECTION)) {
-			db.createCollection(MSG_HISTORY_COLLECTION);
+			if (collectionExists(db, "msg_history")) {
+				db.getCollection("msg_history").renameCollection(new MongoNamespace(db.getName(), MSG_HISTORY_COLLECTION));
+			} else {
+				db.createCollection(MSG_HISTORY_COLLECTION);
+			}
 		}
 		msgHistoryCollection = db.getCollection(MSG_HISTORY_COLLECTION);
 
@@ -273,8 +277,6 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 	@Override
 	public Queue<Element> loadMessagesToJID( List<String> db_ids, XMPPResourceConnection session, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
-		// TODO: temporary
-
 		Queue<Element> result = null;
 		BareJID to = null;
 		
@@ -282,9 +284,14 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			to = session.getBareJID();
 			byte[] toHash = generateId(to);
 
-			Document crit = new Document("to_hash", toHash);
+			Bson crit = Filters.eq("to_hash", toHash);
+			if (db_ids != null && !db_ids.isEmpty()) {
+				crit = Filters.and(crit, Filters.in("_id", db_ids.stream()
+						.map(id -> new ObjectId(id))
+						.collect(Collectors.toList())));
+			}
 
-			FindIterable<Document> cursor = msgHistoryCollection.find(crit).batchSize(batchSize);
+			FindIterable<Document> cursor = msgHistoryCollection.find(crit).sort(Sorts.ascending("ts")).batchSize(batchSize);
 
 			List<Document> list = new ArrayList<Document>();
 			for ( Document it : cursor ) {
@@ -292,21 +299,13 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 					continue;
 				}
 
-				if ( db_ids != null && db_ids.size() >= 0 ){
-					if ( it.containsKey( "ts" ) ){
-						String msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
-						if ( db_ids.contains( msgId ) ){
-							list.add( it );
-						}
-					}
-				} else {
-					list.add( it );
-				}
+				System.out.println(it.getDate("ts").getTime());
+				list.add(it);
 			}
 
-			Collections.sort(list, MSG_COMPARATOR);
-
+			//Collections.sort(list, MSG_COMPARATOR);
 			result = parseLoadedMessages( proc, list);
+			result.stream().map(it -> it.getAttributeStaticStr("id")).forEach(it -> System.out.println(it));
 
 			if (delete) {
 				msgHistoryCollection.deleteMany(crit);
@@ -325,7 +324,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			byte[] toHash = generateId(to.getBareJID());
 			
 			Document crit = new Document("from_hash", fromHash).append("to_hash", toHash)
-					.append("from", from.toString()).append("to", to.toString());
+					.append("from", from.getBareJID().toString()).append("to", to.getBareJID().toString());
 			
 			long count = msgHistoryCollection.count(crit);
 			long msgs_store_limit = getMsgsStoreLimit(to.getBareJID(), userRepo);

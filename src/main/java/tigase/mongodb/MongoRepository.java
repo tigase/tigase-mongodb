@@ -21,7 +21,10 @@
  */
 package tigase.mongodb;
 
-import com.mongodb.*;
+import com.mongodb.BasicDBObject;
+import com.mongodb.ErrorCategory;
+import com.mongodb.MongoException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -334,7 +337,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	@Override
 	public long getUsersCount() {
 		try {
-			return usersCollection.count();
+			return usersCollection.count(new Document());
 		} catch (MongoException ex) {
 			return -1;
 		}

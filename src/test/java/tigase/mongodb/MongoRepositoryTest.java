@@ -83,10 +83,9 @@ public class MongoRepositoryTest {
 		repo.addUser(jid);
 		Assert.assertTrue("User creation failed", repo.userExists(jid));
 
-		Assert.assertEquals(1, repo.getUsersCount());
 		Assert.assertEquals(1, repo.getUsersCount("example.com"));
 		Assert.assertEquals(0, repo.getUsersCount("test.com"));
-		
+		Assert.assertEquals(1, repo.getUsersCount());
 		Assert.assertEquals(jid, repo.getUsers().get(0));
 		
 		repo.removeUser(jid);
