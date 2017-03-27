@@ -79,12 +79,7 @@ public class CounterDataLoggerMongo extends CounterDataLogger {
 			log.log( Level.WARNING, "Problem setting element to DB: ", ex );
 		}
 	}
-
-	@Override
-	public void init( Map<String, Object> archivizerConf ) {
-		super.init( archivizerConf );
-	}
-
+	
 	@Override
 	public void initRepository( String conn_str, Map<String, String> map ) throws SQLException, ClassNotFoundException, IllegalAccessException, InstantiationException, DBInitException {
 		try {
