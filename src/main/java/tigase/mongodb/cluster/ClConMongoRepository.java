@@ -50,7 +50,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 
 	private static final int DEF_BATCH_SIZE = 100;
 
-	private static final String CLUSTER_NODES = "cluster_nodes";
+	private static final String CLUSTER_NODES = "tig_cluster_nodes";
 	
 	private MongoDatabase db;
 	private MongoCollection<Document> clusterNodes;
@@ -88,7 +88,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 		super.removeItem( key );
 
 		try {
-			Document crit = new Document("hostname", key);
+			Document crit = new Document("_id", key);
 			db.getCollection(CLUSTER_NODES).deleteMany(crit);
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem removing element from DB: ", ex);
@@ -104,13 +104,12 @@ public class ClConMongoRepository extends ClConConfigRepository
 			db.createCollection(CLUSTER_NODES);
 		}
 		clusterNodes = db.getCollection(CLUSTER_NODES);
-		clusterNodes.createIndex(new Document("hostname", 1));
 	}
 
 	@Override
 	public void storeItem(tigase.cluster.repo.ClusterRepoItem item) {
 		try {
-			Document crit = new Document("hostname", item.getHostname());
+			Document crit = new Document("_id", item.getHostname());
 			Document dto = new Document("password", item.getPassword())
 					.append("secondary", item.getSecondaryHostname())
 					.append("updated", new Date()).append("port", item.getPortNo())
@@ -138,7 +137,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 			for (Document dto : cursor) {
 				
 				ClusterRepoItem item = getItemInstance();
-					item.setHostname((String) dto.get("hostname"));
+					item.setHostname((String) dto.get("_id"));
 					item.setSecondaryHostname((String) dto.get("secondary"));
 					item.setPassword((String) dto.get("password"));
 					item.setLastUpdate(((Date) dto.get("updated")).getTime());
