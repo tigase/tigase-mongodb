@@ -295,11 +295,10 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 			List<Document> list = new ArrayList<Document>();
 			for ( Document it : cursor ) {
-				if (it.containsKey("expired-at") && ((Date)it.get("expired-at")).getTime() < System.currentTimeMillis()) {
+				if (it.containsKey("expire-at") && ((Date)it.get("expire-at")).getTime() < System.currentTimeMillis()) {
 					continue;
 				}
 
-				System.out.println(it.getDate("ts").getTime());
 				list.add(it);
 			}
 
@@ -340,7 +339,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			if (expired != null) {
 				dto = new Document(crit);
 				dto.append("expire-at", expired);
-				crit.append("expired-at", new Document("$lt", new Date()));
+				crit.append("expire-at", new Document("$lt", new Date()));
 			}
 			dto.append("ts", new Date());
 
@@ -406,14 +405,13 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	@Override
 	protected void loadExpiredQueue(int max) {
 		try {
-			FindIterable<Document> cursor = msgHistoryCollection.find(new Document("ts",
-					new Document("$lt", new Date()))).sort(new Document("ts", 1)).batchSize(batchSize).limit(max);
+			FindIterable<Document> cursor = msgHistoryCollection.find(new Document("expire-at",
+					new Document("$lt", new Date()))).sort(new Document("expire-at", 1)).batchSize(batchSize).limit(max);
 
 			DomBuilderHandler domHandler = new DomBuilderHandler();
-			int counter = 0;
 
 			for ( Document it : cursor ) {
-				if (counter >= max)
+				if (expiredQueue.size() < MAX_QUEUE_SIZE)
 					break;
 
 				String msg_str = (String) it.get("message");
@@ -433,7 +431,6 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 					expiredQueue.offer(item);
 				}
-				counter++;
 			}
 		} catch (MongoException ex) {
 			log.log(Level.WARNING, "Problem getting offline messages from db: ", ex);
@@ -449,8 +446,8 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 				expiredQueue.clear();
 			}
 			
-			FindIterable<Document> cursor = msgHistoryCollection.find(new Document("ts",
-					new Document("$lt", expired))).sort(new Document("ts", 1)).batchSize(batchSize);
+			FindIterable<Document> cursor = msgHistoryCollection.find(new Document("expire-at",
+					new Document("$lt", expired))).sort(new Document("expire-at", 1)).batchSize(batchSize);
 
 			DomBuilderHandler domHandler = new DomBuilderHandler();
 			int counter = 0;
