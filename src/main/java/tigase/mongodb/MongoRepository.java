@@ -561,7 +561,17 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 			throws UserNotFoundException, TigaseDBException {
 		auth.updatePassword(user, password);
 	}
-	
+
+	@Override
+	public AccountStatus getAccountStatus(BareJID user) throws TigaseDBException {
+		return auth.getAccountStatus(user);
+	}
+
+	@Override
+	public void setAccountStatus(BareJID user, AccountStatus status) throws TigaseDBException {
+		auth.setAccountStatus(user, status);
+	}
+
 	@Override
 	public boolean isUserDisabled(BareJID user) 
 					throws UserNotFoundException, TigaseDBException {
