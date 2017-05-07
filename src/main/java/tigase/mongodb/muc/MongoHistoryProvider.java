@@ -40,6 +40,7 @@ import tigase.muc.Affiliation;
 import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.muc.history.AbstractHistoryProvider;
+import tigase.muc.repository.Schema;
 import tigase.server.Packet;
 import tigase.util.TigaseStringprepException;
 import tigase.xml.Element;
@@ -66,6 +67,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME)
 public class MongoHistoryProvider
 		extends AbstractHistoryProvider<MongoDataSource>
 		implements RepositoryVersionAware, MAMRepository {

@@ -44,7 +44,7 @@ public class MongoDualIPRepository implements DualIPRepository<MongoDataSource> 
 
 	private static final Logger log = Logger.getLogger( MongoDualIPRepository.class.getCanonicalName() );
 
-	private static final String CLUSTER_NODES = "cluster_nodes";
+	private static final String CLUSTER_NODES = "tig_cluster_nodes";
 
 	private MongoDatabase db;
 	private MongoCollection<Document> clusterNodes;

@@ -31,6 +31,7 @@ import com.mongodb.client.model.Updates;
 import org.bson.Document;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.http.db.Schema;
 import tigase.http.upload.db.FileUploadRepository;
 import tigase.mongodb.MongoDataSource;
 import tigase.xmpp.BareJID;
@@ -48,6 +49,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * Created by andrzej on 14.03.2017.
  */
 @Repository.Meta( supportedUris = {"mongodb:.*" } )
+@Repository.SchemaId(id = Schema.HTTP_UPLOAD_SCHEMA_ID, name = Schema.HTTP_UPLOAD_SCHEMA_NAME)
 public class MongoFileUploadRepository implements FileUploadRepository<MongoDataSource> {
 
 	private static final String SLOTS = "tig_hfu_slots";

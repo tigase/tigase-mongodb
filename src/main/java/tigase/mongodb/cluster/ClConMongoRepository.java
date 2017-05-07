@@ -31,6 +31,7 @@ import tigase.cluster.repo.ClusterRepoConstants;
 import tigase.cluster.repo.ClusterRepoItem;
 import tigase.db.DBInitException;
 import tigase.db.Repository;
+import tigase.db.Schema;
 import tigase.db.comp.ComponentRepositoryDataSourceAware;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
@@ -43,6 +44,7 @@ import java.util.logging.Logger;
 import static tigase.mongodb.Helper.collectionExists;
 
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
 public class ClConMongoRepository extends ClConConfigRepository
 				implements ClusterRepoConstants, ComponentRepositoryDataSourceAware<ClusterRepoItem,MongoDataSource> {
 
@@ -160,8 +162,8 @@ public class ClConMongoRepository extends ClConConfigRepository
 	@Override
 	public void store() {
 		// Do nothing everything is written on demand to DB
-	}	
-	
+	}
+
 	private class ClusterRepoItem extends tigase.cluster.repo.ClusterRepoItem {
 
 		protected void setCpuUsage(Double cpuUsage) {

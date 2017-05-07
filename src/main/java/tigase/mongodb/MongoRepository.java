@@ -61,6 +61,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
 public class MongoRepository implements AuthRepository, UserRepository, DataSourceAware<MongoDataSource>, RepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoRepository.class.getCanonicalName());

@@ -33,6 +33,7 @@ import org.bson.types.ObjectId;
 import tigase.archive.QueryCriteria;
 import tigase.archive.db.AbstractMessageArchiveRepository;
 import tigase.archive.db.MessageArchiveRepository;
+import tigase.archive.db.Schema;
 import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
@@ -72,6 +73,7 @@ import static com.mongodb.client.model.Aggregates.*;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.SchemaId(id = Schema.MA_SCHEMA_ID, name = Schema.MA_SCHEMA_NAME)
 public class MongoMessageArchiveRepository
 		extends AbstractMessageArchiveRepository<QueryCriteria, MongoDataSource>
 		implements RepositoryVersionAware {

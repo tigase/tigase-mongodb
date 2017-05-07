@@ -39,6 +39,7 @@ import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.muc.RoomWithId;
 import tigase.muc.repository.AbstractMucDAO;
+import tigase.muc.repository.Schema;
 import tigase.util.TigaseStringprepException;
 import tigase.xmpp.BareJID;
 
@@ -57,6 +58,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * Created by andrzej on 20.10.2016.
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME)
 public class MongoMucDAO
 		extends AbstractMucDAO<MongoDataSource, byte[]> {
 

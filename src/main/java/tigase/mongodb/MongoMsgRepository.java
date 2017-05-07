@@ -62,6 +62,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
 public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> implements RepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoMsgRepository.class.getCanonicalName());
