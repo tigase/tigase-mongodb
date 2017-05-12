@@ -232,6 +232,21 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		return Result.error;
 	}
 
+	public Result destroyDataSource() {
+		if (client == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		try {
+			client.dropDatabase(params.getDbName());
+			return Result.ok;
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			return Result.error;
+		}
+	}
+
 	@Override
 	public Result shutdown() {
 		if (client == null) {
