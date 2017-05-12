@@ -30,7 +30,6 @@ import tigase.db.util.SchemaLoader;
 import tigase.util.ClassUtilBean;
 import tigase.util.ReflectionHelper;
 import tigase.util.ui.console.CommandlineParameter;
-import tigase.util.ui.console.ParameterParser;
 import tigase.xmpp.BareJID;
 
 import java.lang.reflect.Type;
@@ -151,7 +150,12 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 	@Override
 	public Result printInfo() {
-		return Result.ok;
+		if (client == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+		
+		return super.printInfo();
 	}
 
 	@Override
@@ -299,7 +303,59 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			   : (results.contains(Result.warning) ? Result.warning : Result.ok);
 	}
 
+	@Override
+	public List<CommandlineParameter> getCommandlineParameters() {
+		List<CommandlineParameter> options = getSetupOptions();
 
+		options.add(new CommandlineParameter.Builder("L", DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getName()).description(
+				"Java Logger level during loading process")
+								 .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getDefaultValue())
+								 .build());
+		options.add(new CommandlineParameter.Builder("J", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID.getName()).description(
+				"Comma separated list of administrator JID(s)").build());
+		options.add(new CommandlineParameter.Builder("N", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID_PASS.getName()).description(
+				"Password that will be used for the entered JID(s) - one for all configured administrators")
+								 .secret()
+								 .build());
+		return options;
+	}
+
+	public List<CommandlineParameter> getSetupOptions() {
+		List<CommandlineParameter> options = new ArrayList<>();
+		options.add(new CommandlineParameter.Builder("D", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getName()).description(
+				"Name of the database that will be created and to which schema will be loaded")
+							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getDefaultValue())
+							.required(true)
+							.build());
+		options.add(new CommandlineParameter.Builder("H", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getName()).description(
+				"Address of the database instance")
+							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getDefaultValue())
+							.required(true)
+							.build());
+		options.add(new CommandlineParameter.Builder("U", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getName()).description(
+				"Name of the user that will be used")
+							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getDefaultValue())
+							.required(true)
+							.build());
+		options.add(new CommandlineParameter.Builder("P", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getName()).description(
+				"Password of the user that will be used")
+							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getDefaultValue())
+							.required(true)
+							.secret()
+							.build());
+		options.add(new CommandlineParameter.Builder("S", DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getName()).description(
+				"Enable SSL support for database connection")
+							.requireArguments(false)
+							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getDefaultValue())
+							.type(Boolean.class)
+							.build());
+		options.add(new CommandlineParameter.Builder("O", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS.getName())
+							.description("Additional databse options query")
+							.requireArguments(false)
+							.build());
+		return options;
+	}
+	
 	public static class Parameters implements SchemaLoader.Parameters {
 
 		private Level logLevel = Level.CONFIG;
@@ -373,38 +429,9 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 						dbOptions = dbOptions.substring(tmp.length() + 1);
 					}
 				} else if (idx > 0) {
-					dbOptions = dbOptions.replace("&"+tmp, "");
+					dbOptions = dbOptions.replace("&" + tmp, "");
 				}
 			}
-		}
-
-		@Override
-		public void parseArguments(String[] args) {
-			ParameterParser parser = new ParameterParser(true);
-
-			getSetupOptions().stream().forEach(option -> parser.addOption(option));
-
-			parser.addOption(new CommandlineParameter.Builder("L", DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getName()).description(
-					"Java Logger level during loading process")
-									 .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getDefaultValue())
-									 .build());
-			parser.addOption(new CommandlineParameter.Builder("J", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID.getName()).description(
-					"Comma separated list of administrator JID(s)").build());
-			parser.addOption(new CommandlineParameter.Builder("N", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID_PASS.getName()).description(
-					"Password that will be used for the entered JID(s) - one for all configured administrators")
-									 .secret()
-									 .build());
-
-			Properties properties = null;
-
-			if (null == args || args.length == 0 || (properties = parser.parseArgs(args)) == null) {
-				System.out.println(parser.getHelp());
-				System.exit(0);
-			} else {
-				System.out.println("properties: " + properties);
-			}
-
-			setProperties(properties);
 		}
 
 		@Override
@@ -419,7 +446,8 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			dbHostname = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME);
 			dbUser = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME);
 			dbPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD);
-			useSSL = Optional.ofNullable(getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.USE_SSL, tmp -> Boolean.parseBoolean(tmp))).orElse(false);
+			useSSL = Optional.ofNullable(getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.USE_SSL, tmp -> Boolean.parseBoolean(tmp)))
+					.orElse(false);
 			dbOptions = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS);
 		}
 
@@ -454,42 +482,5 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 //			}
 		}
 
-		public List<CommandlineParameter> getSetupOptions() {
-			List<CommandlineParameter> options = new ArrayList<>();
-			options.add(new CommandlineParameter.Builder("D", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getName()).description(
-					"Name of the database that will be created and to which schema will be loaded")
-								.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getDefaultValue())
-								.required(true)
-								.build());
-			options.add(new CommandlineParameter.Builder("H", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getName()).description(
-					"Address of the database instance")
-								.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getDefaultValue())
-								.required(true)
-								.build());
-			options.add(new CommandlineParameter.Builder("U", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getName()).description(
-					"Name of the user that will be used")
-								.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getDefaultValue())
-								.required(true)
-								.build());
-			options.add(new CommandlineParameter.Builder("P", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getName()).description(
-					"Password of the user that will be used")
-								.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getDefaultValue())
-								.required(true)
-								.secret()
-								.build());
-			options.add(new CommandlineParameter.Builder("S", DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getName()).description(
-					"Enable SSL support for database connection")
-								.requireArguments(false)
-								.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getDefaultValue())
-								.type(Boolean.class)
-								.build());
-			options.add(new CommandlineParameter.Builder("O", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS.getName())
-								.description("Additional databse options query")
-								.requireArguments(false)
-								.build());
-			return options;
-		}
-
 	}
-
 }
