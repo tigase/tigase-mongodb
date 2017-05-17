@@ -497,5 +497,19 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 //			}
 		}
 
+		@Override
+		public String toString() {
+			return "[" + Arrays.stream(this.getClass().getDeclaredFields()).map(field -> {
+				String result = field.getName() + ": ";
+				Object value;
+				try {
+					field.setAccessible(true);
+					value = field.get(this);
+				} catch (Exception ex) {
+					value = "Error!";
+				}
+				return result + value;
+			}).collect(Collectors.joining(", ")) + "]";
+		}
 	}
 }
