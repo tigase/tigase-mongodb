@@ -576,13 +576,13 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	@Override
 	public boolean isUserDisabled(BareJID user) 
 					throws UserNotFoundException, TigaseDBException {
-		return false;
+		return auth.isUserDisabled(user);
 	}
 	
 	@Override
 	public void setUserDisabled(BareJID user, Boolean value) 
 					throws UserNotFoundException, TigaseDBException {
-		throw new TigaseDBException("Feature not supported");
+		auth.setUserDisabled(user, value);
 	}
 
 	protected <T> List<T> readAllDistinctValuesForField(MongoCollection<Document> collection, String field, Document crit) throws MongoException {
