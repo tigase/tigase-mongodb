@@ -24,6 +24,9 @@ package tigase.mongodb;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import org.bson.Document;
 import tigase.db.*;
 import tigase.db.util.DBSchemaLoader;
 import tigase.db.util.SchemaLoader;
@@ -72,16 +75,31 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 	@Override
 	public String getDBUri() {
+		return getDBUri(false);
+	}
+
+	private String getDBUri(boolean useRootCredentials) {
 		StringBuilder sb = new StringBuilder();
 		sb.append("mongodb://");
-		if (params.getDbUser() != null) {
-			sb.append(params.getDbUser());
-			if (params.getDbPass() != null) {
-				sb.append(":").append(params.getDbPass());
+		if (useRootCredentials && params.getDbRootUser() != null) {
+			if (params.getDbRootUser() != null) {
+				sb.append(params.getDbRootUser());
+				if (params.getDbPass() != null) {
+					sb.append(":").append(params.getDbRootPass());
+				}
+				sb.append("@");
 			}
-			sb.append("@");
+			sb.append(params.getDbHostname()).append("/").append("admin");
+		} else {
+			if (params.getDbUser() != null) {
+				sb.append(params.getDbUser());
+				if (params.getDbPass() != null) {
+					sb.append(":").append(params.getDbPass());
+				}
+				sb.append("@");
+			}
+			sb.append(params.getDbHostname()).append("/").append(params.getDbName());
 		}
-		sb.append(params.getDbHostname()).append("/").append(params.getDbName());
 
 		String options = params.getDbOptions();
 		if (options == null || options.isEmpty()) {
@@ -101,14 +119,13 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 	@Override
 	public Result validateDBConnection() {
 		try {
-			String uri = getDBUri();
+			String uri = getDBUri(true);
 			client = new MongoClient(new MongoClientURI(uri));
-			client.listDatabaseNames();
-			dataSource = new MongoDataSource();
-			dataSource.initRepository(uri, new HashMap<>());
+			client.listDatabaseNames().iterator().hasNext();
 			return Result.ok;
-		} catch (MongoException|DBInitException ex) {
+		} catch (MongoException ex) {
 			log.log( Level.WARNING, ex.getMessage() );
+			client = null;
 			return Result.error;
 		}
 	}
@@ -128,16 +145,38 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 					break;
 				}
 			}
+			MongoDatabase db;
+
 			if (exists) {
 				log.log( Level.INFO, "Exists OK" );
+				db = client.getDatabase(params.getDbName());
 			}
 			else {
 				log.log( Level.INFO, "Creating database..." );
-				client.getDatabase(params.getDbName());
+				db = client.getDatabase(params.getDbName());
 				log.log( Level.INFO, "OK" );
 			}
+
+			boolean createUser = client.getDatabase("admin")
+					.getCollection("system.users")
+					.find(Filters.and(Filters.eq("user", params.getDbUser()), Filters.eq("db", params.getDbName())))
+					.first() == null;
+			if (createUser) {
+				Document result = db.runCommand(new Document().append("createUser", params.getDbUser())
+									  .append("pwd", params.getDbPass())
+									  .append("roles", Collections.singletonList(
+											  new Document("role", "dbOwner").append("db", params.getDbName()))));
+			}
+
+			client.close();
+			client = null;
+
+			String uri = getDBUri();
+			dataSource = new MongoDataSource();
+			dataSource.initRepository(uri, new HashMap<>());
+
 			return Result.ok;
-		} catch (MongoException ex) {
+		} catch (MongoException|DBInitException ex) {
 			log.log(Level.WARNING, ex.getMessage());
 			return Result.error;
 		}
@@ -150,7 +189,7 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 	@Override
 	public Result printInfo() {
-		if (client == null) {
+		if (dataSource == null) {
 			log.log(Level.WARNING, "Connection not validated");
 			return Result.error;
 		}
@@ -160,7 +199,7 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 	@Override
 	public Result addXmppAdminAccount() {
-		if (client == null) {
+		if (dataSource == null) {
 			log.log(Level.WARNING, "Connection not validated");
 			return Result.error;
 		}
@@ -239,6 +278,10 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		}
 
 		try {
+			MongoDatabase db = client.getDatabase(params.getDbName());
+			if (db != null) {
+				db.runCommand(new Document().append("dropUser", params.getDbUser()));
+			}
 			client.dropDatabase(params.getDbName());
 			return Result.ok;
 		} catch (MongoException ex) {
@@ -267,7 +310,7 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 	@Override
 	public Result loadSchema(String schemaId, String version) {
-		if (client == null) {
+		if (dataSource == null) {
 			log.log(Level.WARNING, "Connection not validated");
 			return Result.error;
 		}
@@ -350,12 +393,17 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		options.add(new CommandlineParameter.Builder("U", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getName()).description(
 				"Name of the user that will be used")
 							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getDefaultValue())
-							.required(true)
 							.build());
 		options.add(new CommandlineParameter.Builder("P", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getName()).description(
 				"Password of the user that will be used")
 							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getDefaultValue())
-							.required(true)
+							.secret()
+							.build());
+		options.add(new CommandlineParameter.Builder("R", DBSchemaLoader.PARAMETERS_ENUM.ROOT_USERNAME.getName()).description(
+				"Database root account username used to create tigase user and database")
+							.build());
+		options.add(new CommandlineParameter.Builder("A", DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD.getName()).description(
+				"Database root account password used to create tigase user and database")
 							.secret()
 							.build());
 		options.add(new CommandlineParameter.Builder("S", DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getName()).description(
@@ -381,8 +429,18 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		private String dbHostname = null;
 		private String dbUser = null;
 		private String dbPass = null;
+		private String dbRootUser = null;
+		private String dbRootPass = null;
 		private String dbOptions = null;
 		private boolean useSSL = false;
+
+		public String getDbRootUser() {
+			return dbRootUser;
+		}
+
+		public String getDbRootPass() {
+			return dbRootPass;
+		}
 
 		public String getAdminPassword() {
 			return adminPassword;
@@ -464,6 +522,9 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			useSSL = Optional.ofNullable(getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.USE_SSL, tmp -> Boolean.parseBoolean(tmp)))
 					.orElse(false);
 			dbOptions = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS);
+
+			dbRootUser = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_USERNAME);
+			dbRootPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD);
 		}
 
 		protected void init() {
@@ -489,12 +550,8 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 		@Override
 		public void setDbRootCredentials(String username, String password) {
-//			this.dbRootUser = username;
-//			this.dbRootPass = password;
-//			if (this.dbRootUser == null && this.dbRootPass == null) {
-//				this.dbRootUser = this.dbUser;
-//				this.dbRootPass = this.dbPass;
-//			}
+			this.dbRootUser = username;
+			this.dbRootPass = password;
 		}
 
 		@Override
