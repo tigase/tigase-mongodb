@@ -442,10 +442,12 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			return dbRootPass;
 		}
 
+		@Override
 		public String getAdminPassword() {
 			return adminPassword;
 		}
 
+		@Override
 		public List<BareJID> getAdmins() {
 			return admins == null ? Collections.emptyList() : admins;
 		}
