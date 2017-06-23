@@ -239,6 +239,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	}
 
 	@Override
+	@Deprecated
 	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
 		try {
 			if (params != null) {

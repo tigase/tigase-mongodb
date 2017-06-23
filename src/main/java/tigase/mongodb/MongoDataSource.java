@@ -47,11 +47,17 @@ public class MongoDataSource implements DataSource, UnregisterAware {
 	}
 
 	@Override
-	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
+	public void initialize(String resource_uri) throws DBInitException {
 		resourceUri = resource_uri;
 		MongoClientURI uri = new MongoClientURI(resource_uri);
 		mongo = new MongoClient(uri);
 		db = mongo.getDatabase(uri.getDatabase());
+	}
+
+	@Override
+	@Deprecated
+	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
+		initialize(resource_uri);
 	}
 
 	public MongoDatabase getDatabase() {

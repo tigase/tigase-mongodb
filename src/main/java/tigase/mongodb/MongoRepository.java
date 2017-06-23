@@ -156,6 +156,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	}
 
 	@Override
+	@Deprecated
 	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
 		try {
 			if (db == null) {

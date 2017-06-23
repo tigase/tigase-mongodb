@@ -71,6 +71,7 @@ public class ClConMongoRepository extends ClConConfigRepository
 	//~--- methods --------------------------------------------------------------
 
 	@Override
+	@Deprecated
 	public void initRepository(String resource_uri, Map<String, String> params)
 					throws DBInitException {
 		super.initRepository(resource_uri, params);	
