@@ -42,7 +42,8 @@ import static org.junit.Assert.*;
  */
 public class MongoRepositoryTest {
 
-	protected static String uri = System.getProperty("testDbUri");
+//	protected static String uri = System.getProperty("testDbUri");
+	protected static String uri = "mongodb://tigase_user:tigase_pass@localhost/mongoinstall";
 
 	@ClassRule
 	public static TestRule rule = new TestRule() {
@@ -87,9 +88,23 @@ public class MongoRepositoryTest {
 		Assert.assertEquals(0, repo.getUsersCount("test.com"));
 		Assert.assertEquals(1, repo.getUsersCount());
 		Assert.assertEquals(jid, repo.getUsers().get(0));
-		
+
 		repo.removeUser(jid);
 		Assert.assertFalse("User removal failed", repo.userExists(jid));
+
+
+		repo.addUser(jid,"password");
+		Assert.assertTrue("User creation failed", repo.userExists(jid));
+
+		repo.updatePassword(jid,"password");
+		Assert.assertEquals("Changing to the same password failed", "password",repo.getPassword(jid));
+		repo.updatePassword(jid,"diffpass");
+		Assert.assertEquals("Changing to different password failed", "diffpass",repo.getPassword(jid));
+
+		repo.removeUser(jid);
+		Assert.assertFalse("User removal failed", repo.userExists(jid));
+
+
 	}
 	
 	@Test

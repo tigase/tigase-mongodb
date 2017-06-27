@@ -146,7 +146,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 					UpdateResult result = usersCollection.updateOne(
 							new BasicDBObject("_id", id),
 							new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
-					if (result == null || result.getModifiedCount() <= 0)
+					if (result == null || result.getMatchedCount() <= 0)
 						throw new UserNotFoundException("User " + user + " not found in repository");
 				} catch (MongoException ex) {
 					throw new TigaseDBException("Error retrieving password for user " + user, ex);
