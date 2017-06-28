@@ -42,8 +42,7 @@ import static org.junit.Assert.*;
  */
 public class MongoRepositoryTest {
 
-//	protected static String uri = System.getProperty("testDbUri");
-	protected static String uri = "mongodb://tigase_user:tigase_pass@localhost/mongoinstall";
+	protected static String uri = System.getProperty("testDbUri");
 
 	@ClassRule
 	public static TestRule rule = new TestRule() {
