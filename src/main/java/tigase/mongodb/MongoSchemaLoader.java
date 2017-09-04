@@ -30,6 +30,7 @@ import org.bson.Document;
 import tigase.db.*;
 import tigase.db.util.DBSchemaLoader;
 import tigase.db.util.SchemaLoader;
+import tigase.db.util.SchemaManager;
 import tigase.util.ClassUtilBean;
 import tigase.util.ReflectionHelper;
 import tigase.util.ui.console.CommandlineParameter;
@@ -64,8 +65,9 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 	}
 
 	@Override
-	public void init(Parameters params) {
+	public void init(Parameters params, Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
 		this.params = params;
+		params.init(rootCredentialsCache);
 	}
 
 	@Override
@@ -529,7 +531,15 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			dbRootPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD);
 		}
 
-		protected void init() {
+		protected void init(Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
+			if (dbRootUser == null && dbRootPass == null && rootCredentialsCache.isPresent()) {
+				SchemaManager.RootCredentialsCache cache = rootCredentialsCache.get();
+				SchemaManager.RootCredentials credentials = cache.get(dbHostname);
+				if (credentials != null) {
+					dbRootUser = credentials.user;
+					dbRootPass = credentials.password;
+				}
+			}
 		}
 
 		private static String getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param) {
