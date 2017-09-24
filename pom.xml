@@ -159,6 +159,7 @@
 						<Implementation-Title>${project.name}</Implementation-Title>
 						<Implementation-Version>${project.version}-b${gitVersion}/${buildNumber}</Implementation-Version>
 						<Implementation-Build>${gitVersion}/${buildNumber} (${maven.build.timestamp})</Implementation-Build>
+						<Tigase-Required-Dependencies>tigase.server=${project.dependencies[0].version}</Tigase-Required-Dependencies>
 						<Bundle-Activator>tigase.mongodb.Activator</Bundle-Activator>
 						<Export-Package>tigase.mongodb</Export-Package>
 					</instructions>
@@ -203,16 +204,16 @@
 	</build>
 	<dependencies>
 		<dependency>
-			<groupId>junit</groupId>
-			<artifactId>junit</artifactId>
-			<version>4.11</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
 			<groupId>tigase</groupId>
 			<artifactId>tigase-server</artifactId>
 			<version>7.2.0-SNAPSHOT</version>
 			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.11</version>
+			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>tigase</groupId>
