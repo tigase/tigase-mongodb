@@ -523,12 +523,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 	public void addUser(BareJID user, String password) throws UserExistsException, TigaseDBException {
 		auth.addUser(user, password);
 	}
-
-	@Override
-	public boolean digestAuth(BareJID user, String digest, String id, String alg) throws UserNotFoundException, TigaseDBException, AuthorizationException {
-		return auth.digestAuth(user, digest, id, alg);
-	}
-
+	
 	@Override
 	public void logout(BareJID user)
 			throws UserNotFoundException, TigaseDBException {
@@ -540,13 +535,7 @@ public class MongoRepository implements AuthRepository, UserRepository, DataSour
 			throws UserNotFoundException, TigaseDBException, AuthorizationException {
 		return auth.otherAuth(authProps);
 	}
-
-	@Override
-	public boolean plainAuth(BareJID user, String password)
-			throws UserNotFoundException, TigaseDBException, AuthorizationException {
-		return auth.plainAuth(user, password);
-	}
-
+	
 	@Override
 	public void queryAuth(Map<String, Object> authProps) {
 		auth.queryAuth(authProps);
