@@ -1,5 +1,5 @@
 /*
- * MongoRepository.java
+ * MongoRepositoryOld.java
  *
  * Tigase Jabber/XMPP Server - MongoDB support
  * Copyright (C) 2004-2016 "Tigase, Inc." <office@tigase.com>
@@ -28,12 +28,16 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.*;
+import com.mongodb.client.model.DeleteManyModel;
+import com.mongodb.client.model.InsertOneModel;
+import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.WriteModel;
+import com.mongodb.client.result.UpdateResult;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
+import tigase.annotations.TigaseDeprecated;
 import tigase.auth.credentials.Credentials;
-import tigase.auth.credentials.entries.PlainCredentialsEntry;
 import tigase.db.*;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.util.StringUtilities;
@@ -42,12 +46,14 @@ import tigase.xmpp.BareJID;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
-import static tigase.db.AuthRepositoryImpl.ACCOUNT_STATUS_KEY;
 import static tigase.mongodb.Helper.collectionExists;
 
 /**
@@ -56,18 +62,20 @@ import static tigase.mongodb.Helper.collectionExists;
  *
  * @author andrzej
  */
-@Repository.Meta( supportedUris = { "mongodb:.*" }, isDefault = true)
+@Repository.Meta( supportedUris = { "mongodb:.*" } )
 @Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
-public class MongoRepository extends AbstractAuthRepositoryWithCredentials implements UserRepository, DataSourceAware<MongoDataSource>, RepositoryVersionAware {
+@Deprecated
+@TigaseDeprecated(since = "8.0.0")
+public class MongoRepositoryOld
+		implements AuthRepository, UserRepository, DataSourceAware<MongoDataSource>, RepositoryVersionAware {
 
-	private static final Logger log = Logger.getLogger(MongoRepository.class.getCanonicalName());
+	private static final Logger log = Logger.getLogger(MongoRepositoryOld.class.getCanonicalName());
 
 	private static final String JID_HASH_ALG = "SHA-256";
 
 	private static final int DEF_BATCH_SIZE = 100;
 
 	protected static final String USERS_COLLECTION = "tig_users";
-	protected static final String USER_CREDENTIALS_COLLECTION = "tig_user_credentials";
 	protected static final String NODES_COLLECTION = "tig_nodes";
 
 	protected static final String ID_KEY = "user_id";
@@ -78,7 +86,6 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 	private MongoDataSource dataSource;
 	private MongoDatabase db;
 	private MongoCollection<Document> usersCollection;
-	private MongoCollection<Document> userCredentialsCollection;
 	private MongoCollection<Document> nodesCollection;
 	@ConfigField(desc = "Auto create user", alias = AUTO_CREATE_USER_KEY)
 	protected boolean autoCreateUser = false;
@@ -86,8 +93,7 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
 
-	private AuthRepositoryImpl auth;
-	private boolean passwordInUsersCollection = false;
+	private AuthRepository auth;
 
 	protected byte[] generateId(BareJID user) throws TigaseDBException {
 		return calculateHash(user.toString().toLowerCase());
@@ -107,33 +113,47 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 		this.dataSource = dataSource;
 		db = dataSource.getDatabase();
 
+		MongoCollection users = null;
 		if (!collectionExists(db, USERS_COLLECTION)) {
 			db.createCollection(USERS_COLLECTION);
 		}
 		usersCollection = db.getCollection(USERS_COLLECTION);
 
-		if (!collectionExists(db, USER_CREDENTIALS_COLLECTION)) {
-			db.createCollection(USER_CREDENTIALS_COLLECTION);
-		}
-		userCredentialsCollection = db.getCollection(USER_CREDENTIALS_COLLECTION);
-
+		MongoCollection nodes = null;
 		if (!collectionExists(db, NODES_COLLECTION)) {
 			db.createCollection(NODES_COLLECTION);
 		}
 		nodesCollection = db.getCollection(NODES_COLLECTION);
-		nodesCollection.createIndex(new BasicDBObject("uid", 1));
-		nodesCollection.createIndex(new BasicDBObject("node", 1));
-		nodesCollection.createIndex(new BasicDBObject("key", 1));
-		nodesCollection.createIndex(new BasicDBObject("uid", 1).append("node", 1).append("key", 1));
-
-		passwordInUsersCollection = usersCollection.count(Filters.exists(PASSWORD_KEY)) > 0;
+		nodes = nodesCollection;
+		nodes.createIndex(new BasicDBObject("uid", 1));
+		nodes.createIndex(new BasicDBObject("node", 1));
+		nodes.createIndex(new BasicDBObject("key", 1));
+		nodes.createIndex(new BasicDBObject("uid", 1).append("node", 1).append("key", 1));
 
 		// let's override AuthRepositoryImpl to store password inside objects in tig_users
 		auth = new AuthRepositoryImpl(this) {
 			@Override
 			public String getPassword(BareJID user) throws TigaseDBException {
 				try {
-					return MongoRepository.this.getPassword(user);
+					byte[] id = generateId(user);
+					Document userDto = usersCollection.find(new BasicDBObject("_id", id)).projection(new BasicDBObject(PASSWORD_KEY, 1)).first();
+					if (userDto == null)
+						throw new UserNotFoundException("User " + user + " not found in repository");
+					return (String) userDto.get(PASSWORD_KEY);
+				} catch (MongoException ex) {
+					throw new TigaseDBException("Error retrieving password for user " + user, ex);
+				}
+			}
+
+			@Override
+			public void updatePassword(BareJID user, String password) throws TigaseDBException {
+				try {
+					byte[] id = generateId(user);
+					UpdateResult result = usersCollection.updateOne(
+							new BasicDBObject("_id", id),
+							new BasicDBObject("$set", new BasicDBObject(PASSWORD_KEY, password)));
+					if (result == null || result.getMatchedCount() <= 0)
+						throw new UserNotFoundException("User " + user + " not found in repository");
 				} catch (MongoException ex) {
 					throw new TigaseDBException("Error retrieving password for user " + user, ex);
 				}
@@ -345,6 +365,7 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 
 	@Override
 	public void loggedIn(BareJID jid) throws TigaseDBException {
+		auth.loggedIn(jid);
 	}
 
 	@Override
@@ -506,15 +527,13 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 
 	@Override
 	public void addUser(BareJID user, String password) throws UserExistsException, TigaseDBException {
-		this.addUser(user);
-		if (password != null) {
-			updateCredential(user, Credentials.DEFAULT_USERNAME, password);
-		}
+		auth.addUser(user, password);
 	}
 
 	@Override
 	public void logout(BareJID user)
 			throws UserNotFoundException, TigaseDBException {
+		auth.logout(user);
 	}
 
 	@Override
@@ -527,93 +546,56 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 	public void queryAuth(Map<String, Object> authProps) {
 		auth.queryAuth(authProps);
 	}
-	
+
+	@Override
+	public String getPassword(BareJID user)
+			throws UserNotFoundException, TigaseDBException {
+		return auth.getPassword(user);
+	}
+
 	@Override
 	public void updatePassword(BareJID user, String password)
 			throws UserNotFoundException, TigaseDBException {
-		updateCredential(user, Credentials.DEFAULT_USERNAME, password);
+		auth.updatePassword(user, password);
 	}
 
 	@Override
 	public AccountStatus getAccountStatus(BareJID user) throws TigaseDBException {
-		String value = getData(user, ACCOUNT_STATUS_KEY);
-		return value == null ? null : AccountStatus.valueOf(value);
+		return auth.getAccountStatus(user);
 	}
 
 	@Override
 	public void setAccountStatus(BareJID user, AccountStatus status) throws TigaseDBException {
-		if (status == null) {
-			removeData(user, ACCOUNT_STATUS_KEY);
-		} else {
-			setData(user, ACCOUNT_STATUS_KEY, status.name());
-		}
-		
-		byte[] uid = generateId(user);
-		userCredentialsCollection.updateMany(Filters.eq("uid", uid), Updates.set(ACCOUNT_STATUS_KEY, status.name()));
+		auth.setAccountStatus(user, status);
 	}
-	
+
+	@Override
+	public boolean isUserDisabled(BareJID user) 
+					throws UserNotFoundException, TigaseDBException {
+		return auth.isUserDisabled(user);
+	}
+
+	@Override
+	public void setUserDisabled(BareJID user, Boolean value) 
+					throws UserNotFoundException, TigaseDBException {
+		auth.setUserDisabled(user, value);
+	}
+
 	@Override
 	public Credentials getCredentials(BareJID user, String username) throws TigaseDBException {
-		byte[] uid = generateId(user);
-
-		List<String> mechanisms = getCredentialsDecoder().getSupportedMechanisms();
-		Bson projecton = Projections.fields(Projections.include(mechanisms), Projections.include(ACCOUNT_STATUS_KEY));
-		Document doc = userCredentialsCollection.find(
-				Filters.and(Filters.eq("uid", uid), Filters.eq("username", username)))
-				.projection(projecton)
-				.first();
-
-		if (doc == null) {
-			if (Credentials.DEFAULT_USERNAME.equals(username) && passwordInUsersCollection) {
-				Document userDto = usersCollection.findOneAndUpdate(Filters.eq("_id", uid), Updates.unset(PASSWORD_KEY));
-				if (userDto == null)
-					throw new UserNotFoundException("User " + user + " not found in repository");
-
-				String password = userDto.getString(PASSWORD_KEY);
-				if (password != null) {
-					AccountStatus accountStatus = userDto.getString(ACCOUNT_STATUS_KEY) == null
-												  ? AccountStatus.active
-												  : AccountStatus.valueOf(userDto.getString(ACCOUNT_STATUS_KEY));
-					updateCredential(user, Credentials.DEFAULT_USERNAME, password);
-					return new SingleCredential(user, accountStatus, new PlainCredentialsEntry(password));
-				}
-			}
-			return null;
-		}
-
-		List<DefaultCredentials.RawEntry> entries = new ArrayList<>();
-
-		AccountStatus accountStatus = AccountStatus.valueOf(doc.getString(ACCOUNT_STATUS_KEY));
-		for (String mechanism : mechanisms) {
-			String value = doc.getString(mechanism);
-			if (value != null) {
-				entries.add(new DefaultCredentials.RawEntry(mechanism, value));
-			}
-		}
-		return new DefaultCredentials(user, accountStatus, entries, getCredentialsDecoder());
+		return auth.getCredentials(user, username);
 	}
 
 	@Override
 	public void updateCredential(BareJID user, String username, String password)
 			throws TigaseDBException {
-		List<String[]> credentials = getCredentialsEncoder().encodeForAllMechanisms(user, password);
-
-		byte[] uid = generateId(user);
-		AccountStatus accountStatus = Optional.ofNullable(getAccountStatus(user)).orElse(AccountStatus.active);
-		Document doc = new Document().append("uid", uid).append("username", username).append(ACCOUNT_STATUS_KEY, accountStatus.name());
-		for (String[] pair : credentials) {
-			doc.append(pair[0], pair[1]);
-		}
-
-		userCredentialsCollection.findOneAndReplace(
-				Filters.and(Filters.eq("uid", uid), Filters.eq("username", username)), doc,
-				new FindOneAndReplaceOptions().upsert(true));
+		auth.updateCredential(user, username, password);
 	}
 
+	// TODO: add support for credentials!!
 	@Override
 	public void removeCredential(BareJID user, String username) throws TigaseDBException {
-		byte[] uid = generateId(user);
-		userCredentialsCollection.deleteMany(Filters.and(Filters.eq("uid", uid), Filters.eq("username", username)));
+
 	}
 
 	protected <T> List<T> readAllDistinctValuesForField(MongoCollection<Document> collection, String field, Document crit) throws MongoException {
