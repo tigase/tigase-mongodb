@@ -116,6 +116,7 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 			db.createCollection(USER_CREDENTIALS_COLLECTION);
 		}
 		userCredentialsCollection = db.getCollection(USER_CREDENTIALS_COLLECTION);
+		userCredentialsCollection.createIndex(new BasicDBObject("uid", 1).append("username", 1), new IndexOptions().unique(true));
 
 		if (!collectionExists(db, NODES_COLLECTION)) {
 			db.createCollection(NODES_COLLECTION);
