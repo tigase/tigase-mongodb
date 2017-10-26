@@ -33,6 +33,7 @@ import tigase.db.util.SchemaLoader;
 import tigase.db.util.SchemaManager;
 import tigase.util.ClassUtilBean;
 import tigase.util.ReflectionHelper;
+import tigase.util.Version;
 import tigase.util.ui.console.CommandlineParameter;
 import tigase.xmpp.BareJID;
 
@@ -266,6 +267,18 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 
 		return Result.ok;
+	}
+
+	@Override
+	public Result setComponentVersion(String s, String s1) {
+		// TODO: implement setting version
+		return null;
+	}
+
+	@Override
+	public Version getComponentVersionFromDb(String s) {
+		// TODO: implement getting version
+		return null;
 	}
 
 	@Override
@@ -564,6 +577,16 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		public void setDbRootCredentials(String username, String password) {
 			this.dbRootUser = username;
 			this.dbRootPass = password;
+		}
+
+		@Override
+		public Level getLogLevel() {
+			return this.logLevel;
+		}
+
+		@Override
+		public void setLogLevel(Level level) {
+			this.logLevel = level;
 		}
 
 		@Override
