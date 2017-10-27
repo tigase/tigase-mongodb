@@ -32,8 +32,8 @@ import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.muc.history.AbstractHistoryProviderTest;
 import tigase.server.Packet;
-import tigase.xmpp.BareJID;
-import tigase.xmpp.JID;
+import tigase.xmpp.jid.BareJID;
+import tigase.xmpp.jid.JID;
 
 import java.util.Collection;
 import java.util.Date;

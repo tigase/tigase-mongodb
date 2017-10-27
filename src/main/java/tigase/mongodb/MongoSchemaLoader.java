@@ -31,11 +31,11 @@ import tigase.db.*;
 import tigase.db.util.DBSchemaLoader;
 import tigase.db.util.SchemaLoader;
 import tigase.db.util.SchemaManager;
-import tigase.util.ClassUtilBean;
-import tigase.util.ReflectionHelper;
+import tigase.util.reflection.ClassUtilBean;
+import tigase.util.reflection.ReflectionHelper;
 import tigase.util.Version;
 import tigase.util.ui.console.CommandlineParameter;
-import tigase.xmpp.BareJID;
+import tigase.xmpp.jid.BareJID;
 
 import java.lang.reflect.Type;
 import java.util.*;

@@ -38,8 +38,8 @@ import tigase.kernel.beans.config.ConfigField;
 import tigase.server.amp.db.MsgBroadcastRepository;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
-import tigase.xmpp.BareJID;
-import tigase.xmpp.JID;
+import tigase.xmpp.jid.BareJID;
+import tigase.xmpp.jid.JID;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;

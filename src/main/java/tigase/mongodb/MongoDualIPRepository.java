@@ -24,8 +24,8 @@ import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import tigase.db.Repository;
 import tigase.server.xmppclient.SeeOtherHostDualIP.DualIPRepository;
-import tigase.util.TigaseStringprepException;
-import tigase.xmpp.BareJID;
+import tigase.util.stringprep.TigaseStringprepException;
+import tigase.xmpp.jid.BareJID;
 
 import java.sql.SQLException;
 import java.util.Map;

@@ -28,8 +28,8 @@ import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 import tigase.db.DBInitException;
 import tigase.db.TigaseDBException;
-import tigase.util.TigaseStringprepException;
-import tigase.xmpp.BareJID;
+import tigase.util.stringprep.TigaseStringprepException;
+import tigase.xmpp.jid.BareJID;
 
 import java.util.HashMap;
 import java.util.UUID;

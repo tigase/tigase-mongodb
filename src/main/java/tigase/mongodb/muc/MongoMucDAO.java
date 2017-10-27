@@ -40,8 +40,8 @@ import tigase.muc.RoomConfig;
 import tigase.muc.RoomWithId;
 import tigase.muc.repository.AbstractMucDAO;
 import tigase.muc.repository.Schema;
-import tigase.util.TigaseStringprepException;
-import tigase.xmpp.BareJID;
+import tigase.util.stringprep.TigaseStringprepException;
+import tigase.xmpp.jid.BareJID;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;

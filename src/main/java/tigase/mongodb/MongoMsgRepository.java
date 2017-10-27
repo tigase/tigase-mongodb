@@ -38,11 +38,11 @@ import tigase.db.*;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.server.Packet;
 import tigase.server.amp.db.MsgRepository;
-import tigase.util.DateTimeFormatter;
+import tigase.util.datetime.DateTimeFormatter;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
-import tigase.xmpp.BareJID;
-import tigase.xmpp.JID;
+import tigase.xmpp.jid.BareJID;
+import tigase.xmpp.jid.JID;
 import tigase.xmpp.XMPPResourceConnection;
 
 import java.nio.charset.Charset;

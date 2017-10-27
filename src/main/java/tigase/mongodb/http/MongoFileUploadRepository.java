@@ -34,8 +34,8 @@ import tigase.db.TigaseDBException;
 import tigase.http.db.Schema;
 import tigase.http.upload.db.FileUploadRepository;
 import tigase.mongodb.MongoDataSource;
-import tigase.xmpp.BareJID;
-import tigase.xmpp.JID;
+import tigase.xmpp.jid.BareJID;
+import tigase.xmpp.jid.JID;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;

@@ -33,8 +33,8 @@ import tigase.component.exceptions.RepositoryException;
 import tigase.mongodb.MongoDataSource;
 import tigase.mongodb.RepositoryVersionAware;
 import tigase.xml.Element;
-import tigase.xmpp.BareJID;
-import tigase.xmpp.JID;
+import tigase.xmpp.jid.BareJID;
+import tigase.xmpp.jid.JID;
 import tigase.xmpp.mam.MAMRepository;
 
 import java.security.MessageDigest;

@@ -37,7 +37,7 @@ import tigase.pubsub.Subscription;
 import tigase.pubsub.repository.AbstractPubSubDAOTest;
 import tigase.pubsub.repository.INodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
-import tigase.xmpp.BareJID;
+import tigase.xmpp.jid.BareJID;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
