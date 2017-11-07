@@ -21,13 +21,23 @@ package tigase.mongodb;
 
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
+import com.mongodb.MongoException;
 import com.mongodb.client.MongoDatabase;
+import org.bson.Document;
 import tigase.db.DBInitException;
 import tigase.db.DataSource;
+import tigase.db.DataSourceAware;
 import tigase.db.Repository;
 import tigase.kernel.beans.UnregisterAware;
+import tigase.util.Version;
 
+import java.sql.SQLException;
 import java.util.Map;
+import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import static tigase.mongodb.MongoSchemaLoader.SCHEMA_VERSION;
 
 /**
  * Created by andrzej on 04.10.2016.
@@ -35,9 +45,35 @@ import java.util.Map;
 @Repository.Meta( isDefault=true, supportedUris = {"mongodb:.*" } )
 public class MongoDataSource implements DataSource, UnregisterAware {
 
+	private static final Logger log = Logger.getLogger(MongoDataSource.class.getName());
+
 	private MongoDatabase db;
 	private MongoClient mongo;
 	private String resourceUri;
+
+	@Override
+	public Optional<Version> getSchemaVersion(String component) {
+
+		if ( component == null || component.isEmpty() ){
+			log.log( Level.WARNING, "Wrong component name passed: " + component );
+			return Optional.empty();
+		}
+
+		try {
+			MongoDatabase db = this.getDatabase();
+			if (db != null) {
+				Document crit = new Document("_id", component);
+				final Document version = db.getCollection(SCHEMA_VERSION).find(new Document(crit)).first();
+				if (version != null && version.get("version") != null) {
+					return Optional.of(Version.of((String) version.get("version")));
+				}
+			}
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+		}
+
+		return Optional.empty();
+	}
 
 	@Override
 	public String getResourceUri() {

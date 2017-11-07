@@ -20,11 +20,14 @@
 package tigase.mongodb;
 
 import tigase.db.DataSourceAware;
+import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.archive.MongoMessageArchiveRepository;
 import tigase.mongodb.muc.MongoHistoryProvider;
 import tigase.mongodb.pubsub.PubSubDAOMongo;
+import tigase.util.Version;
 
 import java.util.HashMap;
+import java.util.Optional;
 
 /**
  * Created by andrzej on 07.10.2016.
@@ -103,7 +106,7 @@ public class MongoSchemaUpdater {
 
 		((DataSourceAware) repository).setDataSource(dataSource);
 
-		((RepositoryVersionAware) repository).updateSchema();
+		((RepositoryVersionAware) repository).updateSchema(Optional.of(Version.ZERO), Version.ZERO);
 	}
 
 }

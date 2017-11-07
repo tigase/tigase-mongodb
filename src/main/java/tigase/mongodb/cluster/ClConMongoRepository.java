@@ -42,7 +42,7 @@ import java.util.logging.Logger;
 import static tigase.mongodb.Helper.collectionExists;
 
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-cluster", name = "Tigase XMPP Server (Cluster)")
 public class ClConMongoRepository extends ClConConfigRepository
 				implements ClusterRepoConstants, ComponentRepositoryDataSourceAware<ClusterRepoItem,MongoDataSource> {
 

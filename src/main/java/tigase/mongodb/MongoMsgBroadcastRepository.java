@@ -56,7 +56,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * Created by andrzej on 04.10.2016.
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-offline-message-broadcast", name = "Tigase XMPP Server (Offline Messages [broadcast])")
 public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId,MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger(MongoMsgBroadcastRepository.class.getCanonicalName());

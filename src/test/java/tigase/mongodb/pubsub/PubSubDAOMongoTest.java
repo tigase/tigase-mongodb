@@ -27,19 +27,21 @@ import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 import tigase.component.exceptions.RepositoryException;
+import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.MongoDataSource;
-import tigase.mongodb.RepositoryVersionAware;
 import tigase.pubsub.Affiliation;
 import tigase.pubsub.NodeType;
 import tigase.pubsub.Subscription;
 import tigase.pubsub.repository.AbstractPubSubDAOTest;
 import tigase.pubsub.repository.INodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
+import tigase.util.Version;
 import tigase.xmpp.jid.BareJID;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.Assert.*;
@@ -105,7 +107,7 @@ public class PubSubDAOMongoTest extends AbstractPubSubDAOTest {
 
 		assertNull(dao.getNodeMeta(serviceJid, nodeName));
 
-		((RepositoryVersionAware) dao).updateSchema();
+		((RepositoryVersionAware) dao).updateSchema(Optional.of(Version.ZERO), Version.ZERO);
 
 		assertNotNull(getDatabase()
 							  .getCollection(PubSubDAOMongo.PUBSUB_SERVICE_JIDS)

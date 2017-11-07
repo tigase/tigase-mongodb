@@ -28,8 +28,9 @@ import org.junit.runners.MethodSorters;
 import tigase.archive.QueryCriteria;
 import tigase.archive.db.MessageArchiveRepository;
 import tigase.component.exceptions.RepositoryException;
+import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.MongoDataSource;
-import tigase.mongodb.RepositoryVersionAware;
+import tigase.util.Version;
 import tigase.xml.Element;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.jid.JID;
@@ -40,6 +41,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 /**
  *
@@ -106,7 +108,7 @@ public class MongoMessageArchiveRepositoryTest extends tigase.archive.db.Abstrac
 
 		msgs.clear();
 
-		((RepositoryVersionAware) repo).updateSchema();
+		((RepositoryVersionAware) repo).updateSchema(Optional.of(Version.ZERO), Version.ZERO);
 
 		repo.queryItems(crit, (QueryCriteria qc, MAMRepository.Item item) -> {
 			item.getMessage().setName(((MessageArchiveRepository.Item) item).getDirection().toElementName());

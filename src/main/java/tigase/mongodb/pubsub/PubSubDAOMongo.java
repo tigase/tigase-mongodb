@@ -34,15 +34,18 @@ import org.bson.types.ObjectId;
 import tigase.component.exceptions.ComponentException;
 import tigase.component.exceptions.RepositoryException;
 import tigase.db.Repository;
+import tigase.db.util.RepositoryVersionAware;
+import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
-import tigase.mongodb.RepositoryVersionAware;
+import tigase.mongodb.MongoRepositoryVersionAware;
 import tigase.pubsub.*;
 import tigase.pubsub.modules.mam.Query;
 import tigase.pubsub.repository.*;
 import tigase.pubsub.repository.stateless.NodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
 import tigase.pubsub.repository.stateless.UsersSubscription;
+import tigase.util.Version;
 import tigase.util.stringprep.TigaseStringprepException;
 import tigase.xml.Element;
 import tigase.xmpp.Authorization;
@@ -65,7 +68,8 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 @Repository.SchemaId(id = Schema.PUBSUB_SCHEMA_ID, name = Schema.PUBSUB_SCHEMA_NAME)
-public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource,tigase.pubsub.modules.mam.Query> implements RepositoryVersionAware {
+@RepositoryVersionAware.SchemaVersion
+public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource,tigase.pubsub.modules.mam.Query> implements MongoRepositoryVersionAware {
 
 	private static final String JID_HASH_ALG = "SHA-256";
 	private static final Charset UTF8 = Charset.forName("UTF-8");
@@ -93,7 +97,7 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource,tigase.pu
 	}
 
 	@Override
-	public void updateSchema() throws RepositoryException {
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws RepositoryException {
 		for (Document oldServiceDoc : serviceJidsCollection.find().batchSize(100)) {
 			String serviceJid = (String) oldServiceDoc.get("service_jid");
 
@@ -145,6 +149,7 @@ public class PubSubDAOMongo extends PubSubDAO<ObjectId,MongoDataSource,tigase.pu
 			Document update = new Document("jid_id", newJidId);
 			subscriptionsCollection.updateOne(oldSubs, new Document("$set", update));
 		}
+		return SchemaLoader.Result.ok;
 	}
 
 	public void setDataSource(MongoDataSource dataSource) {

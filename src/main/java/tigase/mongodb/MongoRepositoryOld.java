@@ -37,17 +37,17 @@ import org.bson.types.Binary;
 import tigase.annotations.TigaseDeprecated;
 import tigase.auth.credentials.Credentials;
 import tigase.db.*;
+import tigase.db.util.RepositoryVersionAware;
+import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.util.StringUtilities;
+import tigase.util.Version;
 import tigase.xmpp.jid.BareJID;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -62,10 +62,11 @@ import static tigase.mongodb.Helper.collectionExists;
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 @Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
+@RepositoryVersionAware.SchemaVersion
 @Deprecated
 @TigaseDeprecated(since = "8.0.0")
 public class MongoRepositoryOld
-		implements AuthRepository, UserRepository, DataSourceAware<MongoDataSource>, RepositoryVersionAware {
+		implements AuthRepository, UserRepository, DataSourceAware<MongoDataSource>, MongoRepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoRepositoryOld.class.getCanonicalName());
 
@@ -610,7 +611,7 @@ public class MongoRepositoryOld
 	}
 
 	@Override
-	public void updateSchema() throws TigaseDBException {
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
 		long usersCount = getUsersCount();
 		List<BareJID> users = getUsers();
 
@@ -636,5 +637,6 @@ public class MongoRepositoryOld
 				log.log(Level.SEVERE, "Schema update failed!", ex);
 			}
 		};
+		return SchemaLoader.Result.ok;
 	}
 }

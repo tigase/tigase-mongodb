@@ -33,15 +33,18 @@ import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 import tigase.db.*;
+import tigase.db.util.RepositoryVersionAware;
+import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.server.Packet;
 import tigase.server.amp.db.MsgRepository;
+import tigase.util.Version;
 import tigase.util.datetime.DateTimeFormatter;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
+import tigase.xmpp.XMPPResourceConnection;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.jid.JID;
-import tigase.xmpp.XMPPResourceConnection;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
@@ -60,8 +63,9 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
-public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> implements RepositoryVersionAware {
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-offline-message", name = "Tigase XMPP Server (Offline Messages)")
+@RepositoryVersionAware.SchemaVersion
+public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> implements MongoRepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoMsgRepository.class.getCanonicalName());
 
@@ -371,7 +375,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	}
 
 	@Override
-	public void updateSchema() throws TigaseDBException {
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
 		for (Document doc : msgHistoryCollection.find().batchSize(1000).projection(fields(include("_id", "from", "to")))) {
 			String from = (String) doc.get("from");
 			String to = (String) doc.get("to");
@@ -391,6 +395,7 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 			msgHistoryCollection.updateOne(new Document("_id", doc.get("_id")), new Document("$set", update));
 		}
+		return SchemaLoader.Result.ok;
 	}
 
 	@Override

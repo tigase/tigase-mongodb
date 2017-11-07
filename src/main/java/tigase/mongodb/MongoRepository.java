@@ -33,8 +33,11 @@ import org.bson.types.Binary;
 import tigase.auth.credentials.Credentials;
 import tigase.auth.credentials.entries.PlainCredentialsEntry;
 import tigase.db.*;
+import tigase.db.util.RepositoryVersionAware;
+import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.util.StringUtilities;
+import tigase.util.Version;
 import tigase.xmpp.jid.BareJID;
 
 import java.nio.charset.Charset;
@@ -55,8 +58,11 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" }, isDefault = true)
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
-public class MongoRepository extends AbstractAuthRepositoryWithCredentials implements UserRepository, DataSourceAware<MongoDataSource>, RepositoryVersionAware {
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-user", name = "Tigase XMPP Server (User)")
+@RepositoryVersionAware.SchemaVersion
+public class MongoRepository
+		extends AbstractAuthRepositoryWithCredentials
+		implements UserRepository, DataSourceAware<MongoDataSource>, MongoRepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoRepository.class.getCanonicalName());
 
@@ -629,7 +635,7 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 	}
 
 	@Override
-	public void updateSchema() throws TigaseDBException {
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
 		long usersCount = getUsersCount();
 		List<BareJID> users = getUsers();
 
@@ -655,5 +661,7 @@ public class MongoRepository extends AbstractAuthRepositoryWithCredentials imple
 				log.log(Level.SEVERE, "Schema update failed!", ex);
 			}
 		};
+
+		return SchemaLoader.Result.ok;
 	}
 }

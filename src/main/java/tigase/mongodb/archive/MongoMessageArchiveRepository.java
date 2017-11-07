@@ -35,9 +35,12 @@ import tigase.archive.db.Schema;
 import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
-import tigase.mongodb.RepositoryVersionAware;
+import tigase.db.util.RepositoryVersionAware;
+import tigase.mongodb.MongoRepositoryVersionAware;
+import tigase.util.Version;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
 import tigase.xml.SimpleParser;
@@ -72,9 +75,10 @@ import static com.mongodb.client.model.Aggregates.*;
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
 @Repository.SchemaId(id = Schema.MA_SCHEMA_ID, name = Schema.MA_SCHEMA_NAME)
+@RepositoryVersionAware.SchemaVersion
 public class MongoMessageArchiveRepository
 		extends AbstractMessageArchiveRepository<QueryCriteria, MongoDataSource>
-		implements RepositoryVersionAware {
+		implements MongoRepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoMessageArchiveRepository.class.getCanonicalName());
 
@@ -475,7 +479,7 @@ public class MongoMessageArchiveRepository
 	}
 
 	@Override
-	public void updateSchema() throws TigaseDBException {
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
 		List<Bson> ownerAggregation = Arrays.asList(group("$owner_id", first("owner", "$owner")));
 		for (Document doc : msgsCollection.aggregate(ownerAggregation).allowDiskUse(true).batchSize(1000)) {
 			String owner = (String) doc.get("owner");
@@ -503,6 +507,7 @@ public class MongoMessageArchiveRepository
 			Document update = new Document("buddy_id", newBuddyId);
 			msgsCollection.updateMany(new Document("buddy_id", oldBuddyId), new Document("$set", update));
 		}
+		return SchemaLoader.Result.ok;
 	}
 
 	public static class Item<Q extends QueryCriteria> implements MessageArchiveRepository.Item {

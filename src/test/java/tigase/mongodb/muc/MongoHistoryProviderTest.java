@@ -30,11 +30,13 @@ import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.muc.history.AbstractHistoryProviderTest;
 import tigase.server.Packet;
+import tigase.util.Version;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.jid.JID;
 
 import java.util.Collection;
 import java.util.Date;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertTrue;
@@ -91,7 +93,7 @@ public class MongoHistoryProviderTest extends AbstractHistoryProviderTest<MongoD
 
 		});
 
-		getProvider().updateSchema();
+		getProvider().updateSchema(Optional.of(Version.ZERO), Version.ZERO);
 
 		final AtomicInteger count = new AtomicInteger(0);
 		getProvider().getHistoryMessages(room, creatorJID, null, 1, null, null, new PacketWriter() {

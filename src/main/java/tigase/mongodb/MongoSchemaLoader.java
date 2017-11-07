@@ -24,23 +24,31 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import tigase.db.*;
 import tigase.db.util.DBSchemaLoader;
+import tigase.db.util.RepositoryVersionAware;
 import tigase.db.util.SchemaLoader;
 import tigase.db.util.SchemaManager;
+import tigase.util.Version;
+import tigase.util.log.LogFormatter;
 import tigase.util.reflection.ClassUtilBean;
 import tigase.util.reflection.ReflectionHelper;
-import tigase.util.Version;
 import tigase.util.ui.console.CommandlineParameter;
 import tigase.xmpp.jid.BareJID;
 
 import java.lang.reflect.Type;
 import java.util.*;
 import java.util.function.Function;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static tigase.mongodb.Helper.collectionExists;
 
 /**
  * Created by andrzej on 05.05.2017.
@@ -52,6 +60,7 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 	private Parameters params;
 	private MongoClient client;
 	private MongoDataSource dataSource;
+	protected static final String SCHEMA_VERSION = "tig_schema_versions";
 
 	@Override
 	public Parameters createParameters() {
@@ -67,6 +76,25 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 	public void init(Parameters params, Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
 		this.params = params;
 		params.init(rootCredentialsCache);
+
+		Level lvl = params.logLevel;
+
+		log.setUseParentHandlers(false);
+		log.setLevel(lvl);
+
+		Arrays.stream(log.getHandlers())
+				.filter((handler) -> handler instanceof ConsoleHandler)
+				.findAny()
+				.orElseGet(() -> {
+					Handler handler = new ConsoleHandler();
+					handler.setLevel(lvl);
+					handler.setFormatter(new LogFormatter());
+					log.addHandler(handler);
+					return handler;
+				});
+
+		log.log(Level.CONFIG, "Parameters: {0}", new Object[]{params});
+
 	}
 
 	@Override
@@ -217,28 +245,7 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			return Result.warning;
 		}
 
-		ClassUtilBean.getInstance()
-				.getAllClasses()
-				.stream()
-				.filter(clazz -> {
-					Repository.SchemaId schema = clazz.getAnnotation(Repository.SchemaId.class);
-					if (schema == null) {
-						return false;
-					}
-					return Schema.SERVER_SCHEMA_ID.equals(schema.id());
-				})
-				.filter(clazz -> DataSourceAware.class.isAssignableFrom(clazz))
-				.filter(clazz -> ReflectionHelper.classMatchesClassWithParameters(clazz, DataSourceAware.class,
-																				  new Type[]{MongoDataSource.class}))
-				.map(clazz -> {
-					DataSourceAware<MongoDataSource> repository = null;
-					try {
-						repository = (DataSourceAware<MongoDataSource>) clazz.newInstance();
-					} catch (Exception ex) {
-						log.log(Level.WARNING, "Failed to create instance of " + clazz.getCanonicalName());
-					}
-					return repository;
-				})
+		getDataSourceAwareInstancesStream(Schema.SERVER_SCHEMA_ID)
 				.map(repo -> {
 					if (repo == null) {
 						return Result.error;
@@ -268,15 +275,43 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 	}
 
 	@Override
-	public Result setComponentVersion(String s, String s1) {
-		// TODO: implement setting version
-		return null;
+	public Result setComponentVersion(String component, String version) {
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		if (component == null || component.isEmpty()) {
+			log.log(Level.WARNING, "Wrong component name passed: " + component);
+			return Result.warning;
+		}
+
+		try {
+			MongoDatabase db = dataSource.getDatabase();
+			if (db != null) {
+				if (!collectionExists(db, SCHEMA_VERSION)) {
+					db.createCollection(SCHEMA_VERSION);
+				}
+
+				Document crit = new Document("_id", component);
+				Document dto = new Document("version", version);
+				db.getCollection(SCHEMA_VERSION).updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
+			}
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			return Result.error;
+		}
+
+		return Result.ok;
 	}
 
 	@Override
-	public Version getComponentVersionFromDb(String s) {
-		// TODO: implement getting version
-		return null;
+	public Optional<Version> getComponentVersionFromDb(String component) {
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Optional.empty();
+		}
+		return dataSource.getSchemaVersion(component);
 	}
 
 	@Override
@@ -323,34 +358,19 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 
 	@Override
 	public Result loadSchema(String schemaId, String version) {
+		if (SchemaManager.COMMON_SCHEMA_ID.equals(schemaId)) {
+			return Result.ok;
+		}
 		if (dataSource == null) {
 			log.log(Level.WARNING, "Connection not validated");
 			return Result.error;
 		}
 
+		Optional<Version> currentVersion = getComponentVersionFromDb(schemaId);
+
 		log.log(Level.INFO, "Loading schema " + schemaId + ", version: " + version);
-		Set<Result> results = ClassUtilBean.getInstance()
-				.getAllClasses()
-				.stream()
-				.filter(clazz -> {
-					Repository.SchemaId schema = clazz.getAnnotation(Repository.SchemaId.class);
-					if (schema == null) {
-						return false;
-					}
-					return schemaId.equals(schema.id());
-				})
-				.filter(clazz -> DataSourceAware.class.isAssignableFrom(clazz))
-				.filter(clazz -> ReflectionHelper.classMatchesClassWithParameters(clazz, DataSourceAware.class,
-																				  new Type[]{MongoDataSource.class}))
-				.map(clazz -> {
-					DataSourceAware<MongoDataSource> repository = null;
-					try {
-						repository = (DataSourceAware<MongoDataSource>) clazz.newInstance();
-					} catch (Exception ex) {
-						log.log(Level.WARNING, "Failed to create instance of " + clazz.getCanonicalName());
-					}
-					return repository;
-				})
+
+		Set<Result> results = getDataSourceAwareInstancesStream(schemaId)
 				.map(repo -> {
 					if (repo == null) {
 						return Result.error;
@@ -358,10 +378,19 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 						try {
 							repo.setDataSource(dataSource);
 							if (repo instanceof RepositoryVersionAware) {
-								((RepositoryVersionAware) repo).updateSchema();
+
+								final RepositoryVersionAware versionAwareRepo = (RepositoryVersionAware) repo;
+								final Version newVersion = Version.of(version);
+								Result res = versionAwareRepo.updateSchema(currentVersion, newVersion);
+								if (!currentVersion.isPresent() || Result.ok.equals(res)) {
+									setComponentVersion(schemaId, newVersion.toString());
+								}
+								return Result.ok;
+							} else {
+								return Result.skipped;
 							}
-							return Result.ok;
 						} catch (Exception ex) {
+							ex.printStackTrace();
 							log.log(Level.WARNING, ex.getMessage());
 							return Result.error;
 						}
@@ -372,6 +401,31 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		return results.contains(Result.error)
 			   ? Result.error
 			   : (results.contains(Result.warning) ? Result.warning : Result.ok);
+	}
+
+
+	@SuppressWarnings("unchecked")
+	private Stream<DataSourceAware<MongoDataSource>> getDataSourceAwareInstancesStream(String schemaID) {
+		return ClassUtilBean.getInstance()
+				.getAllClasses()
+				.stream()
+				.filter(clazz -> clazz.isAnnotationPresent(Repository.SchemaId.class))
+				.filter(clazz -> schemaID.equals(clazz.getAnnotation(Repository.SchemaId.class).id()))
+				.filter(DataSourceAware.class::isAssignableFrom)
+				.filter(clazz -> ReflectionHelper.classMatchesClassWithParameters(clazz, DataSourceAware.class,
+				                                                                  new Type[]{MongoDataSource.class}))
+				.map(this::getMongoDataSourceDataSourceAware)
+				.filter(Objects::nonNull);
+	}
+
+	@SuppressWarnings("unchecked")
+	private DataSourceAware<MongoDataSource> getMongoDataSourceDataSourceAware(Class<?> clazz) {
+		try {
+			return (DataSourceAware<MongoDataSource>) clazz.newInstance();
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Failed to create instance of " + clazz.getCanonicalName());
+			return null;
+		}
 	}
 
 	@Override

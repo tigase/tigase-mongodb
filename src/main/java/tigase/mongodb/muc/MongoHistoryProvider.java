@@ -31,15 +31,18 @@ import tigase.component.PacketWriter;
 import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
-import tigase.mongodb.RepositoryVersionAware;
+import tigase.db.util.RepositoryVersionAware;
+import tigase.mongodb.MongoRepositoryVersionAware;
 import tigase.muc.Affiliation;
 import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.muc.history.AbstractHistoryProvider;
 import tigase.muc.repository.Schema;
 import tigase.server.Packet;
+import tigase.util.Version;
 import tigase.util.stringprep.TigaseStringprepException;
 import tigase.xml.Element;
 import tigase.xmpp.Authorization;
@@ -65,10 +68,11 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME)
+@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID+"-history", name = "Tigase MUC Component (History)")
+@RepositoryVersionAware.SchemaVersion
 public class MongoHistoryProvider
 		extends AbstractHistoryProvider<MongoDataSource>
-		implements RepositoryVersionAware, MAMRepository {
+		implements MongoRepositoryVersionAware, MAMRepository {
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "tig_muc_room_history";
@@ -209,7 +213,7 @@ public class MongoHistoryProvider
 	}
 
 	@Override
-	public void updateSchema() throws TigaseDBException {
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
 		List<Bson> aggregationQuery = Arrays.asList(group("$room_jid_id", first("room_jid", "$room_jid")));
 		for (Document doc : historyCollection.aggregate(aggregationQuery).batchSize(100)) {
 			String roomJid = (String) doc.get("room_jid");
@@ -224,6 +228,7 @@ public class MongoHistoryProvider
 			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId),
 										 new Document("$set", new Document("room_jid_id", newRoomJidId)));
 		}
+		return SchemaLoader.Result.ok;
 	}
 
 	private Long getItemPosition(String msgId, Bson filter) throws ComponentException {

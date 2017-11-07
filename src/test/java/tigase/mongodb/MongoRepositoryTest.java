@@ -26,10 +26,12 @@ import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 import tigase.db.DBInitException;
 import tigase.db.TigaseDBException;
+import tigase.util.Version;
 import tigase.util.stringprep.TigaseStringprepException;
 import tigase.xmpp.jid.BareJID;
 
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.Assert.*;
@@ -264,7 +266,7 @@ public class MongoRepositoryTest {
 
 		assertNull(repo.getData(jid, "test-1", "test-2"));
 
-		repo.updateSchema();
+		repo.updateSchema(Optional.of(Version.ZERO), Version.ZERO);
 
 		assertEquals("VALUE", repo.getData(jid, "test-1", "test-2"));
 
