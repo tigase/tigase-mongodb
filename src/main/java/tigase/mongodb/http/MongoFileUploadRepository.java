@@ -46,9 +46,10 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 14.03.2017.
  */
-@Repository.Meta( supportedUris = {"mongodb:.*" } )
+@Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.HTTP_UPLOAD_SCHEMA_ID, name = Schema.HTTP_UPLOAD_SCHEMA_NAME)
-public class MongoFileUploadRepository implements FileUploadRepository<MongoDataSource> {
+public class MongoFileUploadRepository
+		implements FileUploadRepository<MongoDataSource> {
 
 	private static final String SLOTS = "tig_hfu_slots";
 
@@ -56,7 +57,8 @@ public class MongoFileUploadRepository implements FileUploadRepository<MongoData
 	private MongoCollection<Document> slots;
 
 	@Override
-	public Slot allocateSlot(JID sender, String slotId, String filename, long filesize, String contentType) throws TigaseDBException {
+	public Slot allocateSlot(JID sender, String slotId, String filename, long filesize, String contentType)
+			throws TigaseDBException {
 		BareJID bareJid = sender.getBareJID();
 		Date date = new Date();
 		try {
@@ -74,11 +76,6 @@ public class MongoFileUploadRepository implements FileUploadRepository<MongoData
 			throw new TigaseDBException("Failed to allocate slot for file transfer", ex);
 		}
 		return new Slot(bareJid, slotId, filename, filesize, contentType, date);
-	}
-
-	@Override
-	public void updateSlot(BareJID userJid, String slotId) throws TigaseDBException {
-		slots.updateOne(Filters.eq("_id", slotId), Updates.set("status", 1));
 	}
 
 	@Override
@@ -118,7 +115,9 @@ public class MongoFileUploadRepository implements FileUploadRepository<MongoData
 		long timestamp_long = before.toEpochSecond(ZoneOffset.UTC) * 1000;
 
 		List<String> ids = new ArrayList<>();
-		for (Document doc : slots.find(Filters.lt("ts", new Date(timestamp_long))).limit(limit).projection(Projections.include("_id"))) {
+		for (Document doc : slots.find(Filters.lt("ts", new Date(timestamp_long)))
+				.limit(limit)
+				.projection(Projections.include("_id"))) {
 			ids.add(doc.getString("_id"));
 		}
 		slots.deleteMany(Filters.in("_id", ids));
@@ -131,7 +130,12 @@ public class MongoFileUploadRepository implements FileUploadRepository<MongoData
 		if (!collectionExists(db, SLOTS)) {
 			db.createCollection(SLOTS);
 		}
-		slots = db.getCollection( SLOTS );
+		slots = db.getCollection(SLOTS);
 		slots.createIndex(new Document("ts", 1));
+	}
+
+	@Override
+	public void updateSlot(BareJID userJid, String slotId) throws TigaseDBException {
+		slots.updateOne(Filters.eq("_id", slotId), Updates.set("status", 1));
 	}
 }

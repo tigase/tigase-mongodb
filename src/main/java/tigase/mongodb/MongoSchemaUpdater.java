@@ -39,7 +39,7 @@ public class MongoSchemaUpdater {
 		String uri = null;
 
 		for (int i = 0; i < args.length; i++) {
-			switch ( args[i] ) {
+			switch (args[i]) {
 				case "-schema":
 					if (args.length > i + 1) {
 						i++;
@@ -58,10 +58,9 @@ public class MongoSchemaUpdater {
 		}
 
 		if (schema == null || uri == null) {
-			String help = "Usage:"
-					+ "$ java -cp \"jars/*.jar\" tigase.mongodb.MongoSchemaUpdater"
-					+ "\n\t -schema schema type {user, offline-messages, muc, pubsub, message-archive} "
-					+ "\n\t -uri uri to connect to MongoDB";
+			String help = "Usage:" + "$ java -cp \"jars/*.jar\" tigase.mongodb.MongoSchemaUpdater" +
+					"\n\t -schema schema type {user, offline-messages, muc, pubsub, message-archive} " +
+					"\n\t -uri uri to connect to MongoDB";
 
 			System.out.println(help);
 
@@ -96,12 +95,12 @@ public class MongoSchemaUpdater {
 
 		if (!(repository instanceof DataSourceAware)) {
 			System.out.println("Repository do not implement DataSourceAware" +
-									   " - can not initialize repository instance for schema update!");
+					                   " - can not initialize repository instance for schema update!");
 			return;
 		}
 		if (!(repository instanceof RepositoryVersionAware)) {
 			System.out.println("Repository do not implement RepositoryVersionAware" +
-									   " - can not update schema for repository which is unware of schema version!");
+					                   " - can not update schema for repository which is unware of schema version!");
 		}
 
 		((DataSourceAware) repository).setDataSource(dataSource);

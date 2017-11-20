@@ -22,9 +22,9 @@ package tigase.mongodb;
 import tigase.osgi.AbstractActivator;
 
 /**
- *
  * @author andrzej
  */
-public class Activator extends AbstractActivator {
+public class Activator
+		extends AbstractActivator {
 
 }

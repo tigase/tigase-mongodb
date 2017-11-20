@@ -26,12 +26,10 @@ import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import tigase.db.DBInitException;
 import tigase.db.DataSource;
-import tigase.db.DataSourceAware;
 import tigase.db.Repository;
 import tigase.kernel.beans.UnregisterAware;
 import tigase.util.Version;
 
-import java.sql.SQLException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
@@ -42,8 +40,9 @@ import static tigase.mongodb.MongoSchemaLoader.SCHEMA_VERSION;
 /**
  * Created by andrzej on 04.10.2016.
  */
-@Repository.Meta( isDefault=true, supportedUris = {"mongodb:.*" } )
-public class MongoDataSource implements DataSource, UnregisterAware {
+@Repository.Meta(isDefault = true, supportedUris = {"mongodb:.*"})
+public class MongoDataSource
+		implements DataSource, UnregisterAware {
 
 	private static final Logger log = Logger.getLogger(MongoDataSource.class.getName());
 
@@ -52,10 +51,24 @@ public class MongoDataSource implements DataSource, UnregisterAware {
 	private String resourceUri;
 
 	@Override
+	public void beforeUnregister() {
+		mongo.close();
+	}
+
+	public MongoDatabase getDatabase() {
+		return db;
+	}
+
+	@Override
+	public String getResourceUri() {
+		return resourceUri;
+	}
+
+	@Override
 	public Optional<Version> getSchemaVersion(String component) {
 
-		if ( component == null || component.isEmpty() ){
-			log.log( Level.WARNING, "Wrong component name passed: " + component );
+		if (component == null || component.isEmpty()) {
+			log.log(Level.WARNING, "Wrong component name passed: " + component);
 			return Optional.empty();
 		}
 
@@ -76,8 +89,9 @@ public class MongoDataSource implements DataSource, UnregisterAware {
 	}
 
 	@Override
-	public String getResourceUri() {
-		return resourceUri;
+	@Deprecated
+	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
+		initialize(resource_uri);
 	}
 
 	@Override
@@ -86,20 +100,5 @@ public class MongoDataSource implements DataSource, UnregisterAware {
 		MongoClientURI uri = new MongoClientURI(resource_uri);
 		mongo = new MongoClient(uri);
 		db = mongo.getDatabase(uri.getDatabase());
-	}
-
-	@Override
-	@Deprecated
-	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
-		initialize(resource_uri);
-	}
-
-	public MongoDatabase getDatabase() {
-		return db;
-	}
-
-	@Override
-	public void beforeUnregister() {
-		mongo.close();
 	}
 }

@@ -42,10 +42,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.assertTrue;
 
 /**
- *
  * @author andrzej
  */
-public class MongoHistoryProviderTest extends AbstractHistoryProviderTest<MongoDataSource> {
+public class MongoHistoryProviderTest
+		extends AbstractHistoryProviderTest<MongoDataSource> {
 
 	protected MongoHistoryProvider getProvider() {
 		return (MongoHistoryProvider) historyProvider;
@@ -67,8 +67,10 @@ public class MongoHistoryProviderTest extends AbstractHistoryProviderTest<MongoD
 
 		Document dto = new Document("room_jid_id", rid).append("room_jid", jid.toString())
 				.append("event_type", 1)
-				.append("sender_jid", creatorJID.getBareJID().toString()).append("sender_nickname", "Test 1")
-				.append("body", body).append("public_event", room.getConfig().isLoggingEnabled());
+				.append("sender_jid", creatorJID.getBareJID().toString())
+				.append("sender_nickname", "Test 1")
+				.append("body", body)
+				.append("public_event", room.getConfig().isLoggingEnabled());
 		dto.append("timestamp", new Date());
 		getProvider().historyCollection.insertOne(dto);
 
@@ -88,7 +90,8 @@ public class MongoHistoryProviderTest extends AbstractHistoryProviderTest<MongoD
 
 			@Override
 			public void write(Packet packet, AsyncCallback callback) {
-				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+				throw new UnsupportedOperationException(
+						"Not supported yet."); //To change body of generated methods, choose Tools | Templates.
 			}
 
 		});
@@ -108,13 +111,14 @@ public class MongoHistoryProviderTest extends AbstractHistoryProviderTest<MongoD
 			@Override
 			public void write(Packet packet) {
 				Assert.assertEquals("Retrieved incorrect messsage", body,
-									packet.getElement().getChildCDataStaticStr(new String[]{"message", "body"}));
+				                    packet.getElement().getChildCDataStaticStr(new String[]{"message", "body"}));
 				count.incrementAndGet();
 			}
 
 			@Override
 			public void write(Packet packet, AsyncCallback callback) {
-				throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+				throw new UnsupportedOperationException(
+						"Not supported yet."); //To change body of generated methods, choose Tools | Templates.
 			}
 
 		});

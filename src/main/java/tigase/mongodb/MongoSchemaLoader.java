@@ -53,18 +53,82 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 05.05.2017.
  */
-public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters> {
+public class MongoSchemaLoader
+		extends SchemaLoader<MongoSchemaLoader.Parameters> {
 
+	protected static final String SCHEMA_VERSION = "tig_schema_versions";
 	private static final Logger log = Logger.getLogger(MongoSchemaLoader.class.getCanonicalName());
-
-	private Parameters params;
 	private MongoClient client;
 	private MongoDataSource dataSource;
-	protected static final String SCHEMA_VERSION = "tig_schema_versions";
+	private Parameters params;
+
+	@Override
+	public Result addXmppAdminAccount() {
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		List<BareJID> jids = params.getAdmins();
+		if (jids.size() < 1) {
+			log.log(Level.WARNING, "Error: No admin users entered");
+			return Result.warning;
+		}
+
+		String pwd = params.getAdminPassword();
+		if (pwd == null) {
+			log.log(Level.WARNING, "Error: No admin password entered");
+			return Result.warning;
+		}
+
+		getDataSourceAwareInstancesStream(Schema.SERVER_SCHEMA_ID).map(repo -> {
+			if (repo == null) {
+				return Result.error;
+			} else {
+				try {
+					repo.setDataSource(dataSource);
+					if (repo instanceof AuthRepository) {
+						jids.forEach(jid -> {
+							try {
+								((AuthRepository) repo).addUser(jid, pwd);
+							} catch (TigaseDBException ex) {
+								log.log(Level.WARNING, ex.getMessage());
+							}
+						});
+					}
+					return Result.ok;
+				} catch (Exception ex) {
+					log.log(Level.WARNING, ex.getMessage());
+					return Result.error;
+				}
+			}
+		}).collect(Collectors.toSet());
+
+		return Result.ok;
+	}
 
 	@Override
 	public Parameters createParameters() {
 		return new Parameters();
+	}
+
+	public Result destroyDataSource() {
+		if (client == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		try {
+			MongoDatabase db = client.getDatabase(params.getDbName());
+			if (db != null) {
+				db.runCommand(new Document().append("dropUser", params.getDbUser()));
+			}
+			client.dropDatabase(params.getDbName());
+			return Result.ok;
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			return Result.error;
+		}
 	}
 
 	@Override
@@ -73,33 +137,32 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 	}
 
 	@Override
-	public void init(Parameters params, Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
-		this.params = params;
-		params.init(rootCredentialsCache);
+	public List<CommandlineParameter> getCommandlineParameters() {
+		List<CommandlineParameter> options = getSetupOptions();
 
-		Level lvl = params.logLevel;
-
-		log.setUseParentHandlers(false);
-		log.setLevel(lvl);
-
-		Arrays.stream(log.getHandlers())
-				.filter((handler) -> handler instanceof ConsoleHandler)
-				.findAny()
-				.orElseGet(() -> {
-					Handler handler = new ConsoleHandler();
-					handler.setLevel(lvl);
-					handler.setFormatter(new LogFormatter());
-					log.addHandler(handler);
-					return handler;
-				});
-
-		log.log(Level.CONFIG, "Parameters: {0}", new Object[]{params});
-
+		options.add(
+				new CommandlineParameter.Builder("L", DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getName()).description(
+						"Java Logger level during loading process")
+						.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getDefaultValue())
+						.build());
+		options.add(
+				new CommandlineParameter.Builder("J", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID.getName()).description(
+						"Comma separated list of administrator JID(s)").build());
+		options.add(new CommandlineParameter.Builder("N",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID_PASS.getName()).description(
+				"Password that will be used for the entered JID(s) - one for all configured administrators")
+				            .secret()
+				            .build());
+		return options;
 	}
 
 	@Override
-	public List<String> getSupportedTypes() {
-		return Arrays.asList("mongodb");
+	public Optional<Version> getComponentVersionFromDb(String component) {
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Optional.empty();
+		}
+		return dataSource.getSchemaVersion(component);
 	}
 
 	@Override
@@ -145,265 +208,6 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		return sb.toString();
 	}
 
-	@Override
-	public Result validateDBConnection() {
-		try {
-			String uri = getDBUri(true);
-			client = new MongoClient(new MongoClientURI(uri));
-			client.listDatabaseNames().iterator().hasNext();
-			return Result.ok;
-		} catch (MongoException ex) {
-			log.log( Level.WARNING, ex.getMessage() );
-			client = null;
-			return Result.error;
-		}
-	}
-
-	@Override
-	public Result validateDBExists() {
-		if (client == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-
-		try {
-			boolean exists = false;
-			for (String name : client.listDatabaseNames()) {
-				if (params.getDbName().equals(name)) {
-					exists = true;
-					break;
-				}
-			}
-			MongoDatabase db;
-
-			if (exists) {
-				log.log( Level.INFO, "Exists OK" );
-				db = client.getDatabase(params.getDbName());
-			}
-			else {
-				log.log( Level.INFO, "Creating database..." );
-				db = client.getDatabase(params.getDbName());
-				log.log( Level.INFO, "OK" );
-			}
-
-			boolean createUser = client.getDatabase("admin")
-					.getCollection("system.users")
-					.find(Filters.and(Filters.eq("user", params.getDbUser()), Filters.eq("db", params.getDbName())))
-					.first() == null;
-			if (createUser) {
-				Document result = db.runCommand(new Document().append("createUser", params.getDbUser())
-									  .append("pwd", params.getDbPass())
-									  .append("roles", Collections.singletonList(
-											  new Document("role", "dbOwner").append("db", params.getDbName()))));
-			}
-
-			client.close();
-			client = null;
-
-			String uri = getDBUri();
-			dataSource = new MongoDataSource();
-			dataSource.initRepository(uri, new HashMap<>());
-
-			return Result.ok;
-		} catch (MongoException|DBInitException ex) {
-			log.log(Level.WARNING, ex.getMessage());
-			return Result.error;
-		}
-	}
-
-	@Override
-	public Result postInstallation() {
-		return Result.ok;
-	}
-
-	@Override
-	public Result printInfo() {
-		if (dataSource == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-		
-		return super.printInfo();
-	}
-
-	@Override
-	public Result addXmppAdminAccount() {
-		if (dataSource == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-
-		List<BareJID> jids = params.getAdmins();
-		if ( jids.size() < 1 ){
-			log.log( Level.WARNING, "Error: No admin users entered" );
-			return Result.warning;
-		}
-
-		String pwd = params.getAdminPassword();
-		if ( pwd == null ){
-			log.log( Level.WARNING, "Error: No admin password entered" );
-			return Result.warning;
-		}
-
-		getDataSourceAwareInstancesStream(Schema.SERVER_SCHEMA_ID)
-				.map(repo -> {
-					if (repo == null) {
-						return Result.error;
-					} else {
-						try {
-							repo.setDataSource(dataSource);
-							if (repo instanceof AuthRepository) {
-								jids.forEach(jid -> {
-									try {
-										((AuthRepository) repo).addUser(jid, pwd);
-									} catch (TigaseDBException ex) {
-										log.log(Level.WARNING, ex.getMessage());
-									}
-								});
-							}
-							return Result.ok;
-						} catch (Exception ex) {
-							log.log(Level.WARNING, ex.getMessage());
-							return Result.error;
-						}
-					}
-				})
-				.collect(Collectors.toSet());
-
-
-		return Result.ok;
-	}
-
-	@Override
-	public Result setComponentVersion(String component, String version) {
-		if (dataSource == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-
-		if (component == null || component.isEmpty()) {
-			log.log(Level.WARNING, "Wrong component name passed: " + component);
-			return Result.warning;
-		}
-
-		try {
-			MongoDatabase db = dataSource.getDatabase();
-			if (db != null) {
-				if (!collectionExists(db, SCHEMA_VERSION)) {
-					db.createCollection(SCHEMA_VERSION);
-				}
-
-				Document crit = new Document("_id", component);
-				Document dto = new Document("version", version);
-				db.getCollection(SCHEMA_VERSION).updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
-			}
-		} catch (MongoException ex) {
-			log.log(Level.WARNING, ex.getMessage());
-			return Result.error;
-		}
-
-		return Result.ok;
-	}
-
-	@Override
-	public Optional<Version> getComponentVersionFromDb(String component) {
-		if (dataSource == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Optional.empty();
-		}
-		return dataSource.getSchemaVersion(component);
-	}
-
-	@Override
-	public Result loadSchemaFile(String fileName) {
-		return Result.error;
-	}
-
-	public Result destroyDataSource() {
-		if (client == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-
-		try {
-			MongoDatabase db = client.getDatabase(params.getDbName());
-			if (db != null) {
-				db.runCommand(new Document().append("dropUser", params.getDbUser()));
-			}
-			client.dropDatabase(params.getDbName());
-			return Result.ok;
-		} catch (MongoException ex) {
-			log.log(Level.WARNING, ex.getMessage());
-			return Result.error;
-		}
-	}
-
-	@Override
-	public Result shutdown() {
-		if (client == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-		try {
-			client.close();
-			if (dataSource != null) {
-				dataSource.beforeUnregister();
-			}
-			return Result.ok;
-		} catch (MongoException ex) {
-			log.log(Level.WARNING, ex.getMessage());
-			return Result.error;
-		}
-	}
-
-	@Override
-	public Result loadSchema(String schemaId, String version) {
-		if (SchemaManager.COMMON_SCHEMA_ID.equals(schemaId)) {
-			return Result.ok;
-		}
-		if (dataSource == null) {
-			log.log(Level.WARNING, "Connection not validated");
-			return Result.error;
-		}
-
-		Optional<Version> currentVersion = getComponentVersionFromDb(schemaId);
-
-		log.log(Level.INFO, "Loading schema " + schemaId + ", version: " + version);
-
-		Set<Result> results = getDataSourceAwareInstancesStream(schemaId)
-				.map(repo -> {
-					if (repo == null) {
-						return Result.error;
-					} else {
-						try {
-							repo.setDataSource(dataSource);
-							if (repo instanceof RepositoryVersionAware) {
-
-								final RepositoryVersionAware versionAwareRepo = (RepositoryVersionAware) repo;
-								final Version newVersion = Version.of(version);
-								Result res = versionAwareRepo.updateSchema(currentVersion, newVersion);
-								if (!currentVersion.isPresent() || Result.ok.equals(res)) {
-									setComponentVersion(schemaId, newVersion.toString());
-								}
-								return Result.ok;
-							} else {
-								return Result.skipped;
-							}
-						} catch (Exception ex) {
-							ex.printStackTrace();
-							log.log(Level.WARNING, ex.getMessage());
-							return Result.error;
-						}
-					}
-				})
-				.collect(Collectors.toSet());
-
-		return results.contains(Result.error)
-			   ? Result.error
-			   : (results.contains(Result.warning) ? Result.warning : Result.ok);
-	}
-
-
 	@SuppressWarnings("unchecked")
 	private Stream<DataSourceAware<MongoDataSource>> getDataSourceAwareInstancesStream(String schemaID) {
 		return ClassUtilBean.getInstance()
@@ -428,85 +232,286 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		}
 	}
 
-	@Override
-	public List<CommandlineParameter> getCommandlineParameters() {
-		List<CommandlineParameter> options = getSetupOptions();
-
-		options.add(new CommandlineParameter.Builder("L", DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getName()).description(
-				"Java Logger level during loading process")
-								 .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL.getDefaultValue())
-								 .build());
-		options.add(new CommandlineParameter.Builder("J", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID.getName()).description(
-				"Comma separated list of administrator JID(s)").build());
-		options.add(new CommandlineParameter.Builder("N", DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID_PASS.getName()).description(
-				"Password that will be used for the entered JID(s) - one for all configured administrators")
-								 .secret()
-								 .build());
-		return options;
-	}
-
 	public List<CommandlineParameter> getSetupOptions() {
 		List<CommandlineParameter> options = new ArrayList<>();
-		options.add(new CommandlineParameter.Builder("D", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getName()).description(
+		options.add(new CommandlineParameter.Builder("D",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getName()).description(
 				"Name of the database that will be created and to which schema will be loaded")
-							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getDefaultValue())
-							.required(true)
-							.build());
-		options.add(new CommandlineParameter.Builder("H", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getName()).description(
+				            .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME.getDefaultValue())
+				            .required(true)
+				            .build());
+		options.add(new CommandlineParameter.Builder("H",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getName()).description(
 				"Address of the database instance")
-							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getDefaultValue())
-							.required(true)
-							.build());
-		options.add(new CommandlineParameter.Builder("U", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getName()).description(
+				            .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME.getDefaultValue())
+				            .required(true)
+				            .build());
+		options.add(new CommandlineParameter.Builder("U",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getName()).description(
 				"Name of the user that will be used")
-							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getDefaultValue())
-							.build());
-		options.add(new CommandlineParameter.Builder("P", DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getName()).description(
+				            .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME.getDefaultValue())
+				            .build());
+		options.add(new CommandlineParameter.Builder("P",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getName()).description(
 				"Password of the user that will be used")
-							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getDefaultValue())
-							.secret()
-							.build());
-		options.add(new CommandlineParameter.Builder("R", DBSchemaLoader.PARAMETERS_ENUM.ROOT_USERNAME.getName()).description(
-				"Database root account username used to create tigase user and database")
-							.build());
-		options.add(new CommandlineParameter.Builder("A", DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD.getName()).description(
-				"Database root account password used to create tigase user and database")
-							.secret()
-							.build());
+				            .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD.getDefaultValue())
+				            .secret()
+				            .build());
+		options.add(new CommandlineParameter.Builder("R",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.ROOT_USERNAME.getName()).description(
+				"Database root account username used to create tigase user and database").build());
+		options.add(new CommandlineParameter.Builder("A",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD.getName()).description(
+				"Database root account password used to create tigase user and database").secret().build());
 		options.add(new CommandlineParameter.Builder("S", DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getName()).description(
 				"Enable SSL support for database connection")
-							.requireArguments(false)
-							.defaultValue(DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getDefaultValue())
-							.type(Boolean.class)
-							.build());
-		options.add(new CommandlineParameter.Builder("O", DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS.getName())
-							.description("Additional databse options query")
-							.requireArguments(false)
-							.build());
+				            .requireArguments(false)
+				            .defaultValue(DBSchemaLoader.PARAMETERS_ENUM.USE_SSL.getDefaultValue())
+				            .type(Boolean.class)
+				            .build());
+		options.add(new CommandlineParameter.Builder("O",
+		                                             DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS.getName()).description(
+				"Additional databse options query").requireArguments(false).build());
 		return options;
 	}
-	
-	public static class Parameters implements SchemaLoader.Parameters {
 
-		private Level logLevel = Level.CONFIG;
+	@Override
+	public List<String> getSupportedTypes() {
+		return Arrays.asList("mongodb");
+	}
+
+	@Override
+	public void init(Parameters params, Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
+		this.params = params;
+		params.init(rootCredentialsCache);
+
+		Level lvl = params.logLevel;
+
+		log.setUseParentHandlers(false);
+		log.setLevel(lvl);
+
+		Arrays.stream(log.getHandlers())
+				.filter((handler) -> handler instanceof ConsoleHandler)
+				.findAny()
+				.orElseGet(() -> {
+					Handler handler = new ConsoleHandler();
+					handler.setLevel(lvl);
+					handler.setFormatter(new LogFormatter());
+					log.addHandler(handler);
+					return handler;
+				});
+
+		log.log(Level.CONFIG, "Parameters: {0}", new Object[]{params});
+
+	}
+
+	@Override
+	public Result loadSchema(String schemaId, String version) {
+		if (SchemaManager.COMMON_SCHEMA_ID.equals(schemaId)) {
+			return Result.ok;
+		}
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		Optional<Version> currentVersion = getComponentVersionFromDb(schemaId);
+
+		log.log(Level.INFO, "Loading schema " + schemaId + ", version: " + version);
+
+		Set<Result> results = getDataSourceAwareInstancesStream(schemaId).map(repo -> {
+			if (repo == null) {
+				return Result.error;
+			} else {
+				try {
+					repo.setDataSource(dataSource);
+					if (repo instanceof RepositoryVersionAware) {
+
+						final RepositoryVersionAware versionAwareRepo = (RepositoryVersionAware) repo;
+						final Version newVersion = Version.of(version);
+						Result res = versionAwareRepo.updateSchema(currentVersion, newVersion);
+						if (!currentVersion.isPresent() || Result.ok.equals(res)) {
+							setComponentVersion(schemaId, newVersion.toString());
+						}
+						return Result.ok;
+					} else {
+						return Result.skipped;
+					}
+				} catch (Exception ex) {
+					ex.printStackTrace();
+					log.log(Level.WARNING, ex.getMessage());
+					return Result.error;
+				}
+			}
+		}).collect(Collectors.toSet());
+
+		return results.contains(Result.error)
+		       ? Result.error
+		       : (results.contains(Result.warning) ? Result.warning : Result.ok);
+	}
+
+	@Override
+	public Result loadSchemaFile(String fileName) {
+		return Result.error;
+	}
+
+	@Override
+	public Result postInstallation() {
+		return Result.ok;
+	}
+
+	@Override
+	public Result printInfo() {
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		return super.printInfo();
+	}
+
+	@Override
+	public Result setComponentVersion(String component, String version) {
+		if (dataSource == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		if (component == null || component.isEmpty()) {
+			log.log(Level.WARNING, "Wrong component name passed: " + component);
+			return Result.warning;
+		}
+
+		try {
+			MongoDatabase db = dataSource.getDatabase();
+			if (db != null) {
+				if (!collectionExists(db, SCHEMA_VERSION)) {
+					db.createCollection(SCHEMA_VERSION);
+				}
+
+				Document crit = new Document("_id", component);
+				Document dto = new Document("version", version);
+				db.getCollection(SCHEMA_VERSION)
+						.updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
+			}
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			return Result.error;
+		}
+
+		return Result.ok;
+	}
+
+	@Override
+	public Result shutdown() {
+		if (client == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+		try {
+			client.close();
+			if (dataSource != null) {
+				dataSource.beforeUnregister();
+			}
+			return Result.ok;
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			return Result.error;
+		}
+	}
+
+	@Override
+	public Result validateDBConnection() {
+		try {
+			String uri = getDBUri(true);
+			client = new MongoClient(new MongoClientURI(uri));
+			client.listDatabaseNames().iterator().hasNext();
+			return Result.ok;
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			client = null;
+			return Result.error;
+		}
+	}
+
+	@Override
+	public Result validateDBExists() {
+		if (client == null) {
+			log.log(Level.WARNING, "Connection not validated");
+			return Result.error;
+		}
+
+		try {
+			boolean exists = false;
+			for (String name : client.listDatabaseNames()) {
+				if (params.getDbName().equals(name)) {
+					exists = true;
+					break;
+				}
+			}
+			MongoDatabase db;
+
+			if (exists) {
+				log.log(Level.INFO, "Exists OK");
+				db = client.getDatabase(params.getDbName());
+			} else {
+				log.log(Level.INFO, "Creating database...");
+				db = client.getDatabase(params.getDbName());
+				log.log(Level.INFO, "OK");
+			}
+
+			boolean createUser = client.getDatabase("admin")
+					.getCollection("system.users")
+					.find(Filters.and(Filters.eq("user", params.getDbUser()), Filters.eq("db", params.getDbName())))
+					.first() == null;
+			if (createUser) {
+				Document result = db.runCommand(new Document().append("createUser", params.getDbUser())
+						                                .append("pwd", params.getDbPass())
+						                                .append("roles", Collections.singletonList(
+								                                new Document("role", "dbOwner").append("db",
+								                                                                       params.getDbName()))));
+			}
+
+			client.close();
+			client = null;
+
+			String uri = getDBUri();
+			dataSource = new MongoDataSource();
+			dataSource.initRepository(uri, new HashMap<>());
+
+			return Result.ok;
+		} catch (MongoException | DBInitException ex) {
+			log.log(Level.WARNING, ex.getMessage());
+			return Result.error;
+		}
+	}
+
+	public static class Parameters
+			implements SchemaLoader.Parameters {
 
 		private String adminPassword;
 		private List<BareJID> admins;
-		private String dbName = null;
 		private String dbHostname = null;
-		private String dbUser = null;
-		private String dbPass = null;
-		private String dbRootUser = null;
-		private String dbRootPass = null;
+		private String dbName = null;
 		private String dbOptions = null;
+		private String dbPass = null;
+		private String dbRootPass = null;
+		private String dbRootUser = null;
+		private String dbUser = null;
+		private Level logLevel = Level.CONFIG;
 		private boolean useSSL = false;
 
-		public String getDbRootUser() {
-			return dbRootUser;
+		private static String getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param) {
+			return props.getProperty(param.getName(), param.getDefaultValue());
 		}
 
-		public String getDbRootPass() {
-			return dbRootPass;
+		private static <T> T getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param,
+		                                 Function<String, T> converter) {
+			String tmp = getProperty(props, param);
+			if (tmp == null) {
+				return null;
+			}
+			return converter.apply(tmp);
 		}
 
 		@Override
@@ -519,24 +524,53 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 			return admins == null ? Collections.emptyList() : admins;
 		}
 
-		public String getDbName() {
-			return dbName;
-		}
-
 		public String getDbHostname() {
 			return dbHostname;
 		}
 
-		public String getDbUser() {
-			return dbUser;
+		public String getDbName() {
+			return dbName;
+		}
+
+		public String getDbOptions() {
+			return dbOptions;
 		}
 
 		public String getDbPass() {
 			return dbPass;
 		}
 
-		public String getDbOptions() {
-			return dbOptions;
+		public String getDbRootPass() {
+			return dbRootPass;
+		}
+
+		public String getDbRootUser() {
+			return dbRootUser;
+		}
+
+		public String getDbUser() {
+			return dbUser;
+		}
+
+		@Override
+		public Level getLogLevel() {
+			return this.logLevel;
+		}
+
+		@Override
+		public void setLogLevel(Level level) {
+			this.logLevel = level;
+		}
+
+		protected void init(Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
+			if (dbRootUser == null && dbRootPass == null && rootCredentialsCache.isPresent()) {
+				SchemaManager.RootCredentialsCache cache = rootCredentialsCache.get();
+				SchemaManager.RootCredentials credentials = cache.get(dbHostname);
+				if (credentials != null) {
+					dbRootUser = credentials.user;
+					dbRootPass = credentials.password;
+				}
+			}
 		}
 
 		public boolean isUseSSL() {
@@ -577,49 +611,6 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		}
 
 		@Override
-		public void setProperties(Properties props) {
-			logLevel = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL, val -> Level.parse(val));
-			admins = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID, tmp -> Arrays.stream(tmp.split(","))
-					.map(str -> BareJID.bareJIDInstanceNS(str))
-					.collect(Collectors.toList()));
-			adminPassword = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID_PASS);
-
-			dbName = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME);
-			dbHostname = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME);
-			dbUser = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME);
-			dbPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD);
-			useSSL = Optional.ofNullable(getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.USE_SSL, tmp -> Boolean.parseBoolean(tmp)))
-					.orElse(false);
-			dbOptions = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS);
-
-			dbRootUser = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_USERNAME);
-			dbRootPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD);
-		}
-
-		protected void init(Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {
-			if (dbRootUser == null && dbRootPass == null && rootCredentialsCache.isPresent()) {
-				SchemaManager.RootCredentialsCache cache = rootCredentialsCache.get();
-				SchemaManager.RootCredentials credentials = cache.get(dbHostname);
-				if (credentials != null) {
-					dbRootUser = credentials.user;
-					dbRootPass = credentials.password;
-				}
-			}
-		}
-
-		private static String getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param) {
-			return props.getProperty(param.getName(), param.getDefaultValue());
-		}
-
-		private static <T> T getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param, Function<String, T> converter) {
-			String tmp = getProperty(props, param);
-			if (tmp == null) {
-				return null;
-			}
-			return converter.apply(tmp);
-		}
-
-		@Override
 		public void setAdmins(List<BareJID> admins, String password) {
 			this.admins = admins;
 			this.adminPassword = password;
@@ -632,13 +623,24 @@ public class MongoSchemaLoader extends SchemaLoader<MongoSchemaLoader.Parameters
 		}
 
 		@Override
-		public Level getLogLevel() {
-			return this.logLevel;
-		}
+		public void setProperties(Properties props) {
+			logLevel = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL, val -> Level.parse(val));
+			admins = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID, tmp -> Arrays.stream(tmp.split(","))
+					.map(str -> BareJID.bareJIDInstanceNS(str))
+					.collect(Collectors.toList()));
+			adminPassword = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID_PASS);
 
-		@Override
-		public void setLogLevel(Level level) {
-			this.logLevel = level;
+			dbName = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_NAME);
+			dbHostname = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_HOSTNAME);
+			dbUser = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.TIGASE_USERNAME);
+			dbPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.TIGASE_PASSWORD);
+			useSSL = Optional.ofNullable(
+					getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.USE_SSL, tmp -> Boolean.parseBoolean(tmp)))
+					.orElse(false);
+			dbOptions = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.DATABASE_OPTIONS);
+
+			dbRootUser = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_USERNAME);
+			dbRootPass = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ROOT_PASSWORD);
 		}
 
 		@Override

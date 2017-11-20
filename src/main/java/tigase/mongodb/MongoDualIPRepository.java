@@ -37,18 +37,45 @@ import java.util.logging.Logger;
 import static tigase.mongodb.Helper.collectionExists;
 
 /**
- *
  * @author Wojtek
  */
-@Repository.Meta(supportedUris = { "mongodb:.*" })
-public class MongoDualIPRepository implements DualIPRepository<MongoDataSource> {
+@Repository.Meta(supportedUris = {"mongodb:.*"})
+public class MongoDualIPRepository
+		implements DualIPRepository<MongoDataSource> {
 
-	private static final Logger log = Logger.getLogger( MongoDualIPRepository.class.getCanonicalName() );
+	private static final Logger log = Logger.getLogger(MongoDualIPRepository.class.getCanonicalName());
 
 	private static final String CLUSTER_NODES = "tig_cluster_nodes";
-
-	private MongoDatabase db;
 	private MongoCollection<Document> clusterNodes;
+	private MongoDatabase db;
+
+	@Override
+	public Map<BareJID, BareJID> queryAllDB() throws SQLException {
+
+		Map<BareJID, BareJID> result = new ConcurrentSkipListMap<BareJID, BareJID>();
+
+		try {
+			for (Document dto : clusterNodes.find().batchSize(100)) {
+
+				String user_jid = (String) dto.get(HOSTNAME_ID);
+				String node_jid = (String) dto.get(SECONDARY_HOSTNAME_ID);
+				try {
+					BareJID hostname_hid = BareJID.bareJIDInstance(user_jid);
+					BareJID secondary = BareJID.bareJIDInstance(node_jid);
+					result.put(hostname_hid, secondary);
+				} catch (TigaseStringprepException ex) {
+					log.warning("Invalid host or secondary hostname JID: " + user_jid + ", " + node_jid);
+				}
+			}
+
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem getting elements from DB: ", ex);
+		}
+
+		log.info("Loaded " + result.size() + " redirect definitions from database.");
+		return result;
+
+	}
 
 	@Override
 	public void setDataSource(MongoDataSource dataSource) {
@@ -57,36 +84,8 @@ public class MongoDualIPRepository implements DualIPRepository<MongoDataSource> 
 		if (!collectionExists(db, CLUSTER_NODES)) {
 			db.createCollection(CLUSTER_NODES);
 		}
-		clusterNodes = db.getCollection( CLUSTER_NODES );
-		clusterNodes.createIndex( new BasicDBObject( "hostname", 1 ) );
-	}
-
-	@Override
-	public Map<BareJID, BareJID> queryAllDB() throws SQLException {
-
-		Map<BareJID, BareJID> result = new ConcurrentSkipListMap<BareJID, BareJID>();
-
-		try {
-			for ( Document dto : clusterNodes.find().batchSize(100) ) {
-
-				String user_jid = (String) dto.get( HOSTNAME_ID );
-				String node_jid = (String) dto.get( SECONDARY_HOSTNAME_ID );
-				try {
-					BareJID hostname_hid = BareJID.bareJIDInstance( user_jid );
-					BareJID secondary = BareJID.bareJIDInstance( node_jid );
-					result.put( hostname_hid, secondary );
-				} catch ( TigaseStringprepException ex ) {
-					log.warning( "Invalid host or secondary hostname JID: " + user_jid + ", " + node_jid );
-				}
-			}
-
-		} catch ( Exception ex ) {
-			log.log( Level.WARNING, "Problem getting elements from DB: ", ex );
-		}
-
-		log.info( "Loaded " + result.size() + " redirect definitions from database." );
-		return result;
-
+		clusterNodes = db.getCollection(CLUSTER_NODES);
+		clusterNodes.createIndex(new BasicDBObject("hostname", 1));
 	}
 
 }

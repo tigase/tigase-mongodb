@@ -1,12 +1,10 @@
 package tigase.mongodb;
 
 import tigase.db.util.RepositoryVersionAware;
-import tigase.db.util.SchemaLoader;
 import tigase.util.Version;
 
-import java.util.Optional;
-
-public interface MongoRepositoryVersionAware extends RepositoryVersionAware {
+public interface MongoRepositoryVersionAware
+		extends RepositoryVersionAware {
 
 	@Override
 	default Version getVersion() {

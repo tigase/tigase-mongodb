@@ -31,10 +31,10 @@ import tigase.component.PacketWriter;
 import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.db.util.RepositoryVersionAware;
 import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
-import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.MongoRepositoryVersionAware;
 import tigase.muc.Affiliation;
 import tigase.muc.Room;
@@ -62,41 +62,25 @@ import static com.mongodb.client.model.Accumulators.first;
 import static com.mongodb.client.model.Aggregates.group;
 import static tigase.mongodb.Helper.collectionExists;
 
-
 /**
- *
  * @author andrzej
  */
-@Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID+"-history", name = "Tigase MUC Component (History)")
+@Repository.Meta(supportedUris = {"mongodb:.*"})
+@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID + "-history", name = "Tigase MUC Component (History)")
 @RepositoryVersionAware.SchemaVersion
 public class MongoHistoryProvider
 		extends AbstractHistoryProvider<MongoDataSource>
 		implements MongoRepositoryVersionAware, MAMRepository {
+
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
 	private static final String HISTORY_COLLECTION = "tig_muc_room_history";
 	private static final String HISTORY_COLLECTION_OLD = "muc_history";
 	private static final Charset UTF8 = Charset.forName("UTF-8");
-
-	private MongoDatabase db;
 	protected MongoCollection<Document> historyCollection;
-
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
-
-	protected byte[] generateId(BareJID user) throws TigaseDBException {
-		return calculateHash(user.toString().toLowerCase());
-	}
-
-	protected byte[] calculateHash(String user) throws TigaseDBException {
-		try {
-			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.getBytes(UTF8));
-		} catch (NoSuchAlgorithmException ex) {
-			throw new TigaseDBException("Should not happen!!", ex);
-		}
-	}
+	private MongoDatabase db;
 
 	@Override
 	public void addJoinEvent(Room room, Date date, JID senderJID, String nickName) {
@@ -112,8 +96,10 @@ public class MongoHistoryProvider
 			byte[] rid = generateId(room.getRoomJID());
 			Document dto = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString())
 					.append("event_type", 1)
-					.append("sender_jid", senderJid.toString()).append("sender_nickname", senderNickname)
-					.append("body", body).append("public_event", room.getConfig().isLoggingEnabled());
+					.append("sender_jid", senderJid.toString())
+					.append("sender_nickname", senderNickname)
+					.append("body", body)
+					.append("public_event", room.getConfig().isLoggingEnabled());
 			if (time != null) {
 				dto.append("timestamp", time);
 			}
@@ -128,19 +114,45 @@ public class MongoHistoryProvider
 	}
 
 	@Override
-	public void addSubjectChange(Room room, Element message, String subject, JID senderJid, String senderNickname, Date time) {
+	public void addSubjectChange(Room room, Element message, String subject, JID senderJid, String senderNickname,
+	                             Date time) {
+	}
+
+	protected byte[] calculateHash(String user) throws TigaseDBException {
+		try {
+			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
+			return md.digest(user.getBytes(UTF8));
+		} catch (NoSuchAlgorithmException ex) {
+			throw new TigaseDBException("Should not happen!!", ex);
+		}
+	}
+
+	private Packet createMessage(BareJID roomJid, JID senderJID, Document dto, boolean addRealJids)
+			throws TigaseStringprepException {
+		String sender_nickname = (String) dto.get("sender_nickname");
+		String msg = (String) dto.get("msg");
+		String body = (String) dto.get("body");
+		String sender_jid = (String) dto.get("sender_jid");
+		Date timestamp = (Date) dto.get("timestamp");
+
+		return createMessage(roomJid, senderJID, sender_nickname, msg, body, sender_jid, addRealJids, timestamp);
 	}
 
 	@Override
 	public void destroy() {
 	}
 
+	protected byte[] generateId(BareJID user) throws TigaseDBException {
+		return calculateHash(user.toString().toLowerCase());
+	}
+
 	@Override
-	public void getHistoryMessages(Room room, JID senderJID, Integer maxchars, Integer maxstanzas, Integer seconds, Date since, PacketWriter writer) {
+	public void getHistoryMessages(Room room, JID senderJID, Integer maxchars, Integer maxstanzas, Integer seconds,
+	                               Date since, PacketWriter writer) {
 		Affiliation recipientAffiliation = room.getAffiliation(senderJID.getBareJID());
-		boolean addRealJids = room.getConfig().getRoomAnonymity() == RoomConfig.Anonymity.nonanonymous
-				|| room.getConfig().getRoomAnonymity() == RoomConfig.Anonymity.semianonymous
-				&& (recipientAffiliation == Affiliation.owner || recipientAffiliation == Affiliation.admin);
+		boolean addRealJids = room.getConfig().getRoomAnonymity() == RoomConfig.Anonymity.nonanonymous ||
+				room.getConfig().getRoomAnonymity() == RoomConfig.Anonymity.semianonymous &&
+						(recipientAffiliation == Affiliation.owner || recipientAffiliation == Affiliation.admin);
 
 		try {
 			byte[] rid = generateId(room.getRoomJID());
@@ -149,19 +161,25 @@ public class MongoHistoryProvider
 			if (since == null && seconds != null && maxstanzas == null) {
 				since = new Date(new Date().getTime() - seconds * 1000);
 			}
-			
+
 			Document crit = new Document("room_jid_id", rid);
 			if (since != null) {
 				crit.append("timestamp", new Document("$gte", since));
 				Document order = new Document("timestamp", 1);
-				FindIterable<Document> cursor = historyCollection.find(crit).batchSize(batchSize).limit(limit).sort(order);
+				FindIterable<Document> cursor = historyCollection.find(crit)
+						.batchSize(batchSize)
+						.limit(limit)
+						.sort(order);
 				for (Document dto : cursor) {
 					Packet packet = createMessage(room.getRoomJID(), senderJID, dto, addRealJids);
 					writer.write(packet);
 				}
 			} else {
 				Document order = new Document("timestamp", -1);
-				FindIterable<Document> cursor = historyCollection.find(crit).batchSize(batchSize).limit(limit).sort(order);
+				FindIterable<Document> cursor = historyCollection.find(crit)
+						.batchSize(batchSize)
+						.limit(limit)
+						.sort(order);
 				List<Packet> results = new ArrayList<Packet>();
 				for (Document dto : cursor) {
 					Packet packet = createMessage(room.getRoomJID(), senderJID, dto, addRealJids);
@@ -171,64 +189,11 @@ public class MongoHistoryProvider
 				writer.write(results);
 			}
 		} catch (Exception ex) {
-			if (log.isLoggable(Level.SEVERE))
+			if (log.isLoggable(Level.SEVERE)) {
 				log.log(Level.SEVERE, "Can't get history", ex);
+			}
 			throw new RuntimeException(ex);
 		}
-	}
-
-	@Override
-	public boolean isPersistent(Room room) {
-		return true;
-	}
-
-	@Override
-	public void removeHistory(Room room) {
-		try {
-			byte[] rid = generateId(room.getRoomJID());
-			Document crit = new Document("room_jid_id", rid);
-			db.getCollection(HISTORY_COLLECTION).deleteMany(crit);
-		} catch (Exception ex) {
-			if (log.isLoggable(Level.SEVERE))
-				log.log(Level.SEVERE, "Can't remove history", ex);
-			throw new RuntimeException(ex);
-		}		
-	}
-
-	@Override
-	public void setDataSource(MongoDataSource dataSource) {
-		db = dataSource.getDatabase();
-
-		if (!collectionExists(db, HISTORY_COLLECTION)) {
-			if (collectionExists(db, HISTORY_COLLECTION_OLD)) {
-				db.getCollection(HISTORY_COLLECTION_OLD).renameCollection(new MongoNamespace(db.getName(), HISTORY_COLLECTION));
-			} else {
-				db.createCollection(HISTORY_COLLECTION);
-			}
-		}
-		historyCollection = db.getCollection(HISTORY_COLLECTION);
-
-		historyCollection.createIndex(new Document("room_jid_id", 1));
-		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
-	}
-
-	@Override
-	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
-		List<Bson> aggregationQuery = Arrays.asList(group("$room_jid_id", first("room_jid", "$room_jid")));
-		for (Document doc : historyCollection.aggregate(aggregationQuery).batchSize(100)) {
-			String roomJid = (String) doc.get("room_jid");
-
-			byte[] oldRoomJidId = ((Binary) doc.get("_id")).getData();
-			byte[] newRoomJidId = calculateHash(roomJid.toString().toLowerCase());
-
-			if (Arrays.equals(oldRoomJidId, newRoomJidId)) {
-				continue;
-			}
-
-			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId),
-										 new Document("$set", new Document("room_jid_id", newRoomJidId)));
-		}
-		return SchemaLoader.Result.ok;
 	}
 
 	private Long getItemPosition(String msgId, Bson filter) throws ComponentException {
@@ -242,6 +207,16 @@ public class MongoHistoryProvider
 		} catch (NumberFormatException ex) {
 			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Not found message with id = " + msgId);
 		}
+	}
+
+	@Override
+	public boolean isPersistent(Room room) {
+		return true;
+	}
+
+	@Override
+	public Query newQuery() {
+		return new QueryImpl();
 	}
 
 	@Override
@@ -268,17 +243,23 @@ public class MongoHistoryProvider
 			Long after = getItemPosition(query.getRsm().getAfter(), filter);
 			Long before = getItemPosition(query.getRsm().getBefore(), filter);
 
-			AbstractHistoryProvider.calculateOffsetAndPosition(query, (int) count, before == null ? null : before.intValue(), after == null ? null : after.intValue());
+			AbstractHistoryProvider.calculateOffsetAndPosition(query, (int) count,
+			                                                   before == null ? null : before.intValue(),
+			                                                   after == null ? null : after.intValue());
 
 			Document order = new Document("timestamp", 1);
-			FindIterable<Document> cursor = historyCollection.find(filter).sort(order).skip(query.getRsm().getIndex()).limit(query.getRsm().getMax());
+			FindIterable<Document> cursor = historyCollection.find(filter)
+					.sort(order)
+					.skip(query.getRsm().getIndex())
+					.limit(query.getRsm().getMax());
 			for (Document dto : cursor) {
 				String sender_nickname = (String) dto.get("sender_nickname");
 				String msg = (String) dto.get("msg");
 				String body = (String) dto.get("body");
 				Date timestamp = (Date) dto.get("timestamp");
 
-				Element msgEl = createMessageElement(query.getComponentJID().getBareJID(), query.getQuestionerJID(), sender_nickname, msg, body);
+				Element msgEl = createMessageElement(query.getComponentJID().getBareJID(), query.getQuestionerJID(),
+				                                     sender_nickname, msg, body);
 				Item item = new Item() {
 					@Override
 					public String getId() {
@@ -298,26 +279,62 @@ public class MongoHistoryProvider
 				itemHandler.itemFound(query, item);
 			}
 		} catch (Exception ex) {
-			if (log.isLoggable(Level.SEVERE))
+			if (log.isLoggable(Level.SEVERE)) {
 				log.log(Level.SEVERE, "Can't get history", ex);
+			}
 			throw new RuntimeException(ex);
 		}
 
 	}
 
 	@Override
-	public Query newQuery() {
-		return new QueryImpl();
+	public void removeHistory(Room room) {
+		try {
+			byte[] rid = generateId(room.getRoomJID());
+			Document crit = new Document("room_jid_id", rid);
+			db.getCollection(HISTORY_COLLECTION).deleteMany(crit);
+		} catch (Exception ex) {
+			if (log.isLoggable(Level.SEVERE)) {
+				log.log(Level.SEVERE, "Can't remove history", ex);
+			}
+			throw new RuntimeException(ex);
+		}
 	}
 
+	@Override
+	public void setDataSource(MongoDataSource dataSource) {
+		db = dataSource.getDatabase();
 
-	private Packet createMessage(BareJID roomJid, JID senderJID, Document dto, boolean addRealJids) throws TigaseStringprepException {
-		String sender_nickname = (String) dto.get("sender_nickname");
-		String msg = (String) dto.get("msg");
-		String body = (String) dto.get("body");
-		String sender_jid = (String) dto.get("sender_jid");
-		Date timestamp = (Date) dto.get("timestamp");
-		
-		return createMessage(roomJid, senderJID, sender_nickname, msg, body, sender_jid, addRealJids, timestamp);
+		if (!collectionExists(db, HISTORY_COLLECTION)) {
+			if (collectionExists(db, HISTORY_COLLECTION_OLD)) {
+				db.getCollection(HISTORY_COLLECTION_OLD)
+						.renameCollection(new MongoNamespace(db.getName(), HISTORY_COLLECTION));
+			} else {
+				db.createCollection(HISTORY_COLLECTION);
+			}
+		}
+		historyCollection = db.getCollection(HISTORY_COLLECTION);
+
+		historyCollection.createIndex(new Document("room_jid_id", 1));
+		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
+	}
+
+	@Override
+	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
+		List<Bson> aggregationQuery = Arrays.asList(group("$room_jid_id", first("room_jid", "$room_jid")));
+		for (Document doc : historyCollection.aggregate(aggregationQuery).batchSize(100)) {
+			String roomJid = (String) doc.get("room_jid");
+
+			byte[] oldRoomJidId = ((Binary) doc.get("_id")).getData();
+			byte[] newRoomJidId = calculateHash(roomJid.toString().toLowerCase());
+
+			if (Arrays.equals(oldRoomJidId, newRoomJidId)) {
+				continue;
+			}
+
+			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId),
+			                             new Document("$set", new Document("room_jid_id", newRoomJidId)));
+		}
+		return SchemaLoader.Result.ok;
 	}
 }

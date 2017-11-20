@@ -25,6 +25,7 @@ import tigase.muc.repository.AbstractMucDAOTest;
 /**
  * Created by andrzej on 20.10.2016.
  */
-public class MongoMucDAOTest extends AbstractMucDAOTest<MongoDataSource> {
+public class MongoMucDAOTest
+		extends AbstractMucDAOTest<MongoDataSource> {
 
 }

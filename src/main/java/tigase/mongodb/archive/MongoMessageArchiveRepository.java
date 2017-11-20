@@ -35,10 +35,10 @@ import tigase.archive.db.Schema;
 import tigase.component.exceptions.ComponentException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
+import tigase.db.util.RepositoryVersionAware;
 import tigase.db.util.SchemaLoader;
 import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
-import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.MongoRepositoryVersionAware;
 import tigase.util.Version;
 import tigase.xml.DomBuilderHandler;
@@ -48,8 +48,8 @@ import tigase.xml.SingletonFactory;
 import tigase.xmpp.Authorization;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.jid.JID;
-import tigase.xmpp.rsm.RSM;
 import tigase.xmpp.mam.MAMRepository;
+import tigase.xmpp.rsm.RSM;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
@@ -62,18 +62,16 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
+import static com.mongodb.client.model.Accumulators.*;
+import static com.mongodb.client.model.Aggregates.*;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.orderBy;
 import static tigase.mongodb.Helper.collectionExists;
 
-import static  com.mongodb.client.model.Accumulators.*;
-import static com.mongodb.client.model.Aggregates.*;
-
 /**
- *
  * @author andrzej
  */
-@Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.MA_SCHEMA_ID, name = Schema.MA_SCHEMA_NAME)
 @RepositoryVersionAware.SchemaVersion
 public class MongoMessageArchiveRepository
@@ -85,26 +83,18 @@ public class MongoMessageArchiveRepository
 	private static final int DEF_BATCH_SIZE = 100;
 
 	private static final String HASH_ALG = "SHA-256";
-	private static final String[] MSG_BODY_PATH = { "message", "body" };	
+	private static final String[] MSG_BODY_PATH = {"message", "body"};
 	private static final String MSGS_COLLECTION = "tig_ma_msgs";
 	private static final String STORE_PLAINTEXT_BODY_KEY = "store-plaintext-body";
 	private static final Charset UTF8 = Charset.forName("UTF-8");
 
-	private static final SimpleParser parser      = SingletonFactory.getParserInstance();
-	
-	private MongoDatabase db;
-	private MongoCollection<Document> msgsCollection;
-
+	private static final SimpleParser parser = SingletonFactory.getParserInstance();
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
-
+	private MongoDatabase db;
+	private MongoCollection<Document> msgsCollection;
 	@ConfigField(desc = "Store plaintext body in database", alias = STORE_PLAINTEXT_BODY_KEY)
 	private boolean storePlaintextBody = true;
-
-
-	private static byte[] generateId(BareJID user) throws TigaseDBException {
-		return calculateHash(user.toString().toLowerCase());
-	}
 
 	private static byte[] calculateHash(String user) throws TigaseDBException {
 		try {
@@ -115,45 +105,36 @@ public class MongoMessageArchiveRepository
 		}
 	}
 
-	public void setDataSource(MongoDataSource dataSource) {
-		MongoDatabase db = dataSource.getDatabase();
-		if (!collectionExists(db, MSGS_COLLECTION)) {
-			db.createCollection(MSGS_COLLECTION);
-		}
-
-		msgsCollection = db.getCollection(MSGS_COLLECTION);
-
-		msgsCollection.createIndex(new Document("owner_id", 1).append("date", 1));
-		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1));
-		msgsCollection.createIndex(new Document("body", "text"));
-		msgsCollection.createIndex(new Document("owner_id", 1).append("tags", 1));
-		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("hash", 1).append("ts", 1));
-		msgsCollection.createIndex(new Document("owner_domain_id", 1).append("ts", 1));
-
-		this.db = db;
+	private static byte[] generateId(BareJID user) throws TigaseDBException {
+		return calculateHash(user.toString().toLowerCase());
 	}
-	
+
 	@Override
-	public void archiveMessage(BareJID ownerJid, JID buddyJid, Direction direction, Date timestamp, Element msg, Set<String> tags) {
+	public void archiveMessage(BareJID ownerJid, JID buddyJid, Direction direction, Date timestamp, Element msg,
+	                           Set<String> tags) {
 		try {
 			byte[] oid = generateId(ownerJid);
 			byte[] bid = generateId(buddyJid.getBareJID());
 			byte[] odid = calculateHash(ownerJid.getDomain());
-			
+
 			String type = msg.getAttributeStaticStr("type");
-			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
+			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24 * 60 * 60 * 1000)));
 			byte[] hash = generateHashOfMessage(direction, msg, timestamp, null);
-			
-			Document crit = new Document("owner_id", oid).append("buddy_id", bid)
-					.append("hash", hash);
+
+			Document crit = new Document("owner_id", oid).append("buddy_id", bid).append("hash", hash);
 
 			if (type == null || !"groupchat".equals(type)) {
 				crit.append("ts", timestamp);
 			} else {
-				crit.append("ts", new Document("$gte", new Date(timestamp.getTime() - (30 * 60 * 1000)))
-						.append("$lte", new Date(timestamp.getTime() + (30 * 60 * 1000))));
+				crit.append("ts", new Document("$gte", new Date(timestamp.getTime() - (30 * 60 * 1000))).append("$lte",
+				                                                                                                new Date(
+						                                                                                                timestamp
+								                                                                                                .getTime() +
+								                                                                                                (30 *
+										                                                                                                60 *
+										                                                                                                1000))));
 			}
-			
+
 			Document dto = new Document("owner", ownerJid.toString()).append("owner_id", oid)
 					.append("owner_domain_id", odid)
 					.append("buddy", buddyJid.getBareJID().toString())
@@ -166,7 +147,7 @@ public class MongoMessageArchiveRepository
 					.append("type", type)
 					.append("msg", msg.toString())
 					.append("hash", hash);
-			
+
 			if (storePlaintextBody) {
 				String body = msg.getChildCData(MSG_BODY_PATH);
 				if (body != null) {
@@ -184,14 +165,64 @@ public class MongoMessageArchiveRepository
 		}
 	}
 
+	public Document createCriteriaDocument(QueryCriteria query) throws TigaseDBException {
+		BareJID owner = query.getQuestionerJID().getBareJID();
+		byte[] oid = generateId(owner);
+		Document crit = new Document("owner_id", oid);
+
+		if (query.getWith() != null) {
+			byte[] wid = generateId(query.getWith().getBareJID());
+			crit.append("buddy_id", wid);
+		}
+
+		Document dateCrit = null;
+		if (query.getStart() != null) {
+			if (dateCrit == null) {
+				dateCrit = new Document();
+			}
+			dateCrit.append("$gte", query.getStart());
+		}
+		if (query.getEnd() != null) {
+			if (dateCrit == null) {
+				dateCrit = new Document();
+			}
+			dateCrit.append("$lte", query.getEnd());
+		}
+		if (dateCrit != null) {
+			crit.append("ts", dateCrit);
+		}
+		if (!query.getTags().isEmpty()) {
+			crit.append("tags", new Document("$all", new ArrayList<>(query.getTags())));
+		}
+
+		if (!query.getContains().isEmpty()) {
+			StringBuilder containsSb = new StringBuilder();
+			for (String contains : query.getContains()) {
+				if (containsSb.length() > 0) {
+					containsSb.append(" ");
+				}
+				if (contains.contains(" ")) {
+					containsSb.append("\"");
+					containsSb.append(contains);
+					containsSb.append("\"");
+				} else {
+					containsSb.append(contains);
+				}
+			}
+			crit.append("$text", new Document("$search", containsSb.toString()));
+		}
+
+		return crit;
+	}
+
 	@Override
 	public void deleteExpiredMessages(BareJID owner, LocalDateTime before) throws TigaseDBException {
 		try {
 			byte[] odid = calculateHash(owner.getDomain());
 			long timestamp_long = before.toEpochSecond(ZoneOffset.UTC) * 1000;
-			Document crit = new Document("owner_domain_id", odid)
-					.append("ts", new Document("$lt", new Date(timestamp_long)));
-		
+			Document crit = new Document("owner_domain_id", odid).append("ts",
+			                                                             new Document("$lt", new Date(timestamp_long)));
+
 			msgsCollection.deleteMany(crit);
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not remove expired messages", ex);
@@ -199,14 +230,106 @@ public class MongoMessageArchiveRepository
 	}
 
 	private Integer getColletionPosition(String uid) {
-		if (uid == null || uid.isEmpty())
+		if (uid == null || uid.isEmpty()) {
 			return null;
+		}
 
 		return Integer.parseInt(uid);
 	}
 
+	private Integer getItemPosition(String uid, QueryCriteria query, Document crit)
+			throws SQLException, ComponentException {
+		if (uid == null || uid.isEmpty()) {
+			return null;
+		}
+
+		System.out.println("getting position for " + uid);
+		if (!query.getUseMessageIdInRsm()) {
+			return Integer.parseInt(uid);
+		}
+
+		Document idCrit = new Document(crit);
+		idCrit.append("hash", tigase.util.Base64.decode(uid));
+
+		FindIterable<Document> cursor = msgsCollection.find(idCrit);
+		Document doc = cursor.first();
+		if (doc == null) {
+			System.out.println("item with " + uid + " not found");
+			return null;
+		}
+		ObjectId id = cursor.first().getObjectId("_id");
+
+		Document positionCrit = new Document(crit);
+		positionCrit.append("_id", new Document("$lt", id));
+
+		long position = msgsCollection.count(positionCrit);
+
+		System.out.println("got position " + position + " for " + uid);
+
+		if (position < 0) {
+			throw new ComponentException(Authorization.BAD_REQUEST, "Item with " + uid + " not found");
+		}
+
+		return (int) (position);
+	}
+
 	@Override
-	public void queryCollections(QueryCriteria query, CollectionHandler<QueryCriteria> collectionHandler) throws TigaseDBException {
+	public List<String> getTags(BareJID owner, String startsWith, QueryCriteria criteria) throws TigaseDBException {
+		List<String> results = new ArrayList<String>();
+		try {
+			byte[] oid = generateId(owner);
+			Pattern tagPattern = Pattern.compile(startsWith + ".*");
+			List<Document> pipeline = new ArrayList<Document>();
+			Document crit = new Document("owner_id", oid);
+			Document matchCrit = new Document("$match", crit);
+			pipeline.add(matchCrit);
+			pipeline.add(new Document("$unwind", "$tags"));
+			pipeline.add(new Document("$match", new Document("tags", tagPattern)));
+			pipeline.add(new Document("$group", new Document("_id", "$tags")));
+			pipeline.add(new Document("$group", new Document("_id", 1).append("count", new Document("$sum", 1))));
+
+			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true);
+			Document countDoc = cursor.first();
+			int count = countDoc != null ? countDoc.getInteger("count") : null;
+
+			String beforeStr = criteria.getRsm().getBefore();
+			String afterStr = criteria.getRsm().getAfter();
+			calculateOffsetAndPosition(criteria, count, beforeStr == null ? null : Integer.parseInt(beforeStr),
+			                           afterStr == null ? null : Integer.parseInt(afterStr));
+
+			if (count > 0) {
+				pipeline.remove(pipeline.size() - 1);
+				pipeline.add(new Document("$sort", new Document("_id", 1)));
+				if (criteria.getRsm().getIndex() > 0) {
+					pipeline.add(new Document("$skip", criteria.getRsm().getIndex()));
+				}
+				pipeline.add(new Document("$limit", criteria.getRsm().getMax()));
+				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
+				for (Document dto : cursor) {
+					results.add((String) dto.get("_id"));
+				}
+
+				RSM rsm = criteria.getRsm();
+				rsm.setResults(count, rsm.getIndex());
+				if (results != null && !results.isEmpty()) {
+					rsm.setFirst(String.valueOf(rsm.getIndex()));
+					rsm.setLast(String.valueOf(rsm.getIndex() + (results.size() - 1)));
+				}
+			}
+		} catch (Exception ex) {
+			throw new TigaseDBException("Could not retrieve list of used tags", ex);
+		}
+		return results;
+	}
+
+	@Override
+	public QueryCriteria newQuery() {
+		return new QueryCriteria();
+	}
+
+	@Override
+	public void queryCollections(QueryCriteria query, CollectionHandler<QueryCriteria> collectionHandler)
+			throws TigaseDBException {
 		try {
 			Bson crit = createCriteriaDocument(query);
 			List<Element> results = new ArrayList<Element>();
@@ -215,7 +338,7 @@ public class MongoMessageArchiveRepository
 			Bson matchCrit = match(crit);
 			pipeline.add(matchCrit);
 			Bson groupCrit = group(new Document("ts", "$date").append("buddy", "$buddy"), min("ts", "$ts"),
-								   min("buddy", "$buddy"));
+			                       min("buddy", "$buddy"));
 			pipeline.add(groupCrit);
 			Bson countCrit = group(1, sum("count", 1));
 			pipeline.add(countCrit);
@@ -243,8 +366,8 @@ public class MongoMessageArchiveRepository
 				pipeline.add(limit(query.getRsm().getMax()));
 
 				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
-				
-				for ( Document dto : cursor) {
+
+				for (Document dto : cursor) {
 					String buddy = (String) dto.get("buddy");
 					Date ts = (Date) dto.get("ts");
 					collectionHandler.collectionFound(query, buddy, ts, null);
@@ -262,41 +385,9 @@ public class MongoMessageArchiveRepository
 		}
 	}
 
-	private Integer getItemPosition(String uid, QueryCriteria query, Document crit) throws SQLException, ComponentException {
-		if (uid == null || uid.isEmpty())
-			return null;
-
-		System.out.println("getting position for " + uid);
-		if (!query.getUseMessageIdInRsm())
-			return Integer.parseInt(uid);
-
-		Document idCrit = new Document(crit);
-		idCrit.append("hash", tigase.util.Base64.decode(uid));
-
-		FindIterable<Document> cursor = msgsCollection.find(idCrit);
-		Document doc = cursor.first();
-		if (doc == null) {
-			System.out.println("item with " + uid + " not found");
-			return null;
-		}
-		ObjectId id = cursor.first().getObjectId("_id");
-
-		Document positionCrit = new Document(crit);
-		positionCrit.append("_id", new Document("$lt", id));
-
-		long position = msgsCollection.count(positionCrit);
-
-		System.out.println("got position " + position + " for " + uid);
-
-		if (position < 0)
-			throw new ComponentException(Authorization.BAD_REQUEST, "Item with " + uid + " not found");
-
-		return (int) (position);
-	}
-
-
 	@Override
-	public void queryItems(QueryCriteria query, ItemHandler<QueryCriteria, MAMRepository.Item> itemHandler) throws TigaseDBException {
+	public void queryItems(QueryCriteria query, ItemHandler<QueryCriteria, MAMRepository.Item> itemHandler)
+			throws TigaseDBException {
 		try {
 			Document crit = createCriteriaDocument(query);
 			List<Element> results = new ArrayList<Element>();
@@ -307,7 +398,6 @@ public class MongoMessageArchiveRepository
 			Integer before = getItemPosition(query.getRsm().getBefore(), query, crit);
 
 			calculateOffsetAndPosition(query, count, before, after);
-
 
 			FindIterable<Document> cursor = msgsCollection.find(crit);
 			if (query.getRsm().getIndex() > 0) {
@@ -336,8 +426,9 @@ public class MongoMessageArchiveRepository
 
 					parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
 
-					if (startTimestamp == null)
+					if (startTimestamp == null) {
 						startTimestamp = item.timestamp;
+					}
 
 					Queue<Element> queue = domHandler.getParsedElements();
 					Element msg = null;
@@ -362,120 +453,39 @@ public class MongoMessageArchiveRepository
 		try {
 			byte[] oid = generateId(owner);
 			byte[] wid = calculateHash(with.toLowerCase());
-			
+
 			if (start == null) {
 				start = new Date(0);
 			}
 			if (end == null) {
 				end = new Date(0);
 			}
-			
+
 			Document dateCrit = new Document("$gte", start).append("$lte", end);
-			Document crit = new Document("owner_id", oid)
-					.append("buddy_id", wid).append("ts", dateCrit);
-			
+			Document crit = new Document("owner_id", oid).append("buddy_id", wid).append("ts", dateCrit);
+
 			msgsCollection.deleteMany(crit);
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not remove items", ex);
 		}
 	}
-	
-	@Override
-	public List<String> getTags(BareJID owner, String startsWith, QueryCriteria criteria) throws TigaseDBException {
-		List<String> results = new ArrayList<String>();
-		try {
-			byte[] oid = generateId(owner);
-			Pattern tagPattern = Pattern.compile(startsWith + ".*");
-			List<Document> pipeline = new ArrayList<Document>();
-			Document crit = new Document("owner_id", oid);
-			Document matchCrit = new Document("$match", crit);
-			pipeline.add(matchCrit);
-			pipeline.add(new Document("$unwind", "$tags"));
-			pipeline.add(new Document("$match", new Document("tags", tagPattern)));
-			pipeline.add(new Document("$group", new Document("_id", "$tags")));
-			pipeline.add(new Document("$group", new Document("_id", 1).append("count", new Document("$sum", 1))));
-		
-			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true);
-			Document countDoc = cursor.first();
-			int count = countDoc != null ? countDoc.getInteger("count") : null;
 
-			String beforeStr = criteria.getRsm().getBefore();
-			String afterStr = criteria.getRsm().getAfter();
-			calculateOffsetAndPosition(criteria, count, beforeStr == null ? null : Integer.parseInt(beforeStr), afterStr == null ? null : Integer.parseInt(afterStr));
-
-			if (count > 0) {
-				pipeline.remove(pipeline.size() - 1);
-				pipeline.add(new Document("$sort", new Document("_id", 1)));
-				if (criteria.getRsm().getIndex() > 0) {
-					pipeline.add(new Document("$skip", criteria.getRsm().getIndex()));
-				}
-				pipeline.add(new Document("$limit", criteria.getRsm().getMax()));
-				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
-				for (Document dto : cursor) {
-					results.add((String) dto.get("_id"));
-				}
-
-				RSM rsm = criteria.getRsm();
-				rsm.setResults(count, rsm.getIndex());
-				if (results!= null && !results.isEmpty()) {
-					rsm.setFirst(String.valueOf(rsm.getIndex()));
-					rsm.setLast(String.valueOf(rsm.getIndex() + (results.size() - 1)));
-				}
-			}
-		} catch (Exception ex) {
-			throw new TigaseDBException("Could not retrieve list of used tags", ex);
-		}
-		return results;
-	}
-
-	@Override
-	public QueryCriteria newQuery() {
-		return new QueryCriteria();
-	}
-
-	public Document createCriteriaDocument(QueryCriteria query) throws TigaseDBException {
-		BareJID owner = query.getQuestionerJID().getBareJID();
-		byte[] oid = generateId(owner);
-		Document crit = new Document("owner_id", oid);
-
-		if (query.getWith() != null) {
-			byte[] wid = generateId(query.getWith().getBareJID());
-			crit.append("buddy_id", wid);
+	public void setDataSource(MongoDataSource dataSource) {
+		MongoDatabase db = dataSource.getDatabase();
+		if (!collectionExists(db, MSGS_COLLECTION)) {
+			db.createCollection(MSGS_COLLECTION);
 		}
 
-		Document dateCrit = null;
-		if (query.getStart() != null) {
-			if (dateCrit == null) dateCrit = new Document();
-			dateCrit.append("$gte", query.getStart());
-		}
-		if (query.getEnd() != null) {
-			if (dateCrit == null) dateCrit = new Document();
-			dateCrit.append("$lte", query.getEnd());
-		}
-		if (dateCrit != null) {
-			crit.append("ts", dateCrit);
-		}
-		if (!query.getTags().isEmpty()) {
-			crit.append("tags", new Document("$all", new ArrayList<>(query.getTags())));
-		}
+		msgsCollection = db.getCollection(MSGS_COLLECTION);
 
-		if (!query.getContains().isEmpty()) {
-			StringBuilder containsSb = new StringBuilder();
-			for (String contains : query.getContains()) {
-				if (containsSb.length() > 0)
-					containsSb.append(" ");
-				if (contains.contains(" ")) {
-					containsSb.append("\"");
-					containsSb.append(contains);
-					containsSb.append("\"");
-				} else {
-					containsSb.append(contains);
-				}
-			}
-			crit.append("$text", new Document("$search", containsSb.toString()));
-		}
+		msgsCollection.createIndex(new Document("owner_id", 1).append("date", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1));
+		msgsCollection.createIndex(new Document("body", "text"));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("tags", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("hash", 1).append("ts", 1));
+		msgsCollection.createIndex(new Document("owner_domain_id", 1).append("ts", 1));
 
-		return crit;
+		this.db = db;
 	}
 
 	@Override
@@ -510,21 +520,23 @@ public class MongoMessageArchiveRepository
 		return SchemaLoader.Result.ok;
 	}
 
-	public static class Item<Q extends QueryCriteria> implements MessageArchiveRepository.Item {
+	public static class Item<Q extends QueryCriteria>
+			implements MessageArchiveRepository.Item {
+
+		Direction direction;
 		String id;
 		Element messageEl;
 		Date timestamp;
-		Direction direction;
 		String with;
-
-		@Override
-		public String getId() {
-			return id;
-		}
 
 		@Override
 		public Direction getDirection() {
 			return direction;
+		}
+
+		@Override
+		public String getId() {
+			return id;
 		}
 
 		@Override
@@ -542,6 +554,5 @@ public class MongoMessageArchiveRepository
 			return with;
 		}
 	}
-
 
 }

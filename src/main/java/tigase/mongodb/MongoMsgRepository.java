@@ -59,13 +59,14 @@ import static com.mongodb.client.model.Projections.include;
 import static tigase.mongodb.Helper.collectionExists;
 
 /**
- *
  * @author andrzej
  */
-@Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-offline-message", name = "Tigase XMPP Server (Offline Messages)")
+@Repository.Meta(supportedUris = {"mongodb:.*"})
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-offline-message", name = "Tigase XMPP Server (Offline Messages)")
 @RepositoryVersionAware.SchemaVersion
-public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> implements MongoRepositoryVersionAware {
+public class MongoMsgRepository
+		extends MsgRepository<ObjectId, MongoDataSource>
+		implements MongoRepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoMsgRepository.class.getCanonicalName());
 
@@ -80,15 +81,31 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	//private static final Comparator<Document> MSG_COMPARATOR = (o1, o2) -> ((Date) o1.get("ts")).compareTo((Date) o2.get("ts"));
 
 	private static final Charset UTF8 = Charset.forName("UTF-8");
-
-	private MongoCollection<Document> msgHistoryCollection;
-	private MongoDatabase db;
-
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
+	private MongoDatabase db;
+	private MongoCollection<Document> msgHistoryCollection;
+
+	private byte[] calculateHash(String user) throws TigaseDBException {
+		try {
+			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
+			return md.digest(user.getBytes(UTF8));
+		} catch (NoSuchAlgorithmException ex) {
+			throw new TigaseDBException("Should not happen!!", ex);
+		}
+	}
 
 	@Override
-	public int deleteMessagesToJID( List<String> db_ids, XMPPResourceConnection session ) throws UserNotFoundException {
+	protected void deleteMessage(ObjectId dbId) {
+		try {
+			msgHistoryCollection.deleteOne(new Document("_id", dbId));
+		} catch (MongoException ex) {
+
+		}
+	}
+
+	@Override
+	public int deleteMessagesToJID(List<String> db_ids, XMPPResourceConnection session) throws UserNotFoundException {
 
 		int count = 0;
 		BareJID to = null;
@@ -98,24 +115,27 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 			Bson crit = Filters.eq("to_hash", toHash);
 
-
-			if ( db_ids == null || db_ids.size() == 0 ){
+			if (db_ids == null || db_ids.size() == 0) {
 				msgHistoryCollection.deleteMany(crit);
-				
+
 			} else {
 				crit = Filters.and(crit, Filters.in("_id", db_ids.stream()
 						.map(id -> new ObjectId(id))
 						.collect(Collectors.toList())));
 
-				DeleteResult result = msgHistoryCollection.deleteMany(crit );
+				DeleteResult result = msgHistoryCollection.deleteMany(crit);
 				count = (int) result.getDeletedCount();
 			}
 
- 		} catch (Exception ex) {
+		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem adding new entry to DB: ", ex);
 		}
 
 		return count;
+	}
+
+	private byte[] generateId(BareJID user) throws TigaseDBException {
+		return calculateHash(user.toString().toLowerCase());
 	}
 
 	@Override
@@ -155,89 +175,73 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			deleteMessage(item.db_id);
 		}
 
-		return item.msg;		
+		return item.msg;
 	}
 
 	@Override
-	public Map<Enum, Long> getMessagesCount( JID to ) throws UserNotFoundException {
+	public Map<Enum, Long> getMessagesCount(JID to) throws UserNotFoundException {
 
-		Map<Enum, Long> result = new HashMap<>( MSG_TYPES.values().length );
+		Map<Enum, Long> result = new HashMap<>(MSG_TYPES.values().length);
 
 		try {
-			byte[] toHash = generateId( to.getBareJID() );
+			byte[] toHash = generateId(to.getBareJID());
 
-			Document crit = new Document( "to_hash", toHash );
+			Document crit = new Document("to_hash", toHash);
 
-			for ( MSG_TYPES type : MSG_TYPES.values() ) {
-				long count = msgHistoryCollection.count( crit.append( "msg_type", type.toString() ) );
-				if ( count > 0 ){
-					result.put( type, count );
+			for (MSG_TYPES type : MSG_TYPES.values()) {
+				long count = msgHistoryCollection.count(crit.append("msg_type", type.toString()));
+				if (count > 0) {
+					result.put(type, count);
 				}
 			}
 
-		} catch ( Exception ex ) {
-			log.log( Level.WARNING, "Problem adding new entry to DB: ", ex );
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem adding new entry to DB: ", ex);
 		}
 		return result;
 	}
 
 	@Override
-	public List<Element> getMessagesList( JID to ) throws UserNotFoundException {
+	public List<Element> getMessagesList(JID to) throws UserNotFoundException {
 		// TODO: temporary
 
 		List<Element> result = new LinkedList<Element>();
 
 		try {
-			byte[] toHash = generateId( to.getBareJID() );
+			byte[] toHash = generateId(to.getBareJID());
 
-			Document crit = new Document( "to_hash", toHash );
+			Document crit = new Document("to_hash", toHash);
 
 			FindIterable<Document> cursor = msgHistoryCollection.find(crit)
 					.projection(Projections.include("_id", "from", "msg_type"))
 					.sort(Sorts.ascending("ts"))
 					.batchSize(batchSize);
 
-			for ( Document it : cursor ) {
+			for (Document it : cursor) {
 				String msgId = it.getObjectId("_id").toHexString();
 				String sender = null;
-				if ( it.containsKey( "from" ) ){
-					sender =  (String) it.get( "from" ) ;
+				if (it.containsKey("from")) {
+					sender = (String) it.get("from");
 				}
 				MSG_TYPES messageType = MSG_TYPES.none;
-				if ( it.containsKey( "msg_type" ) ){
-					messageType = MSG_TYPES.valueOf( (String) it.get( "msg_type" ) );
+				if (it.containsKey("msg_type")) {
+					messageType = MSG_TYPES.valueOf((String) it.get("msg_type"));
 				}
 
 				if (msgId != null && messageType != null && messageType != MSG_TYPES.none && sender != null) {
 					Element item = new Element("item", new String[]{"jid", "node", "type", "name"},
-											   new String[]{to.getBareJID().toString(), msgId, messageType.name(), sender});
+					                           new String[]{to.getBareJID().toString(), msgId, messageType.name(),
+					                                        sender});
 					result.add(item);
 				}
 
 			}
 
-		} catch ( Exception ex ) {
-			log.log( Level.WARNING, "Problem retrieving itmes from DB: ", ex );
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem retrieving itmes from DB: ", ex);
 		}
 		return result;
 
-	}
-
-	@Override
-	public void setDataSource(MongoDataSource dataSource) {
-		db = dataSource.getDatabase();
-
-		if (!collectionExists(db, MSG_HISTORY_COLLECTION)) {
-			if (collectionExists(db, "msg_history")) {
-				db.getCollection("msg_history").renameCollection(new MongoNamespace(db.getName(), MSG_HISTORY_COLLECTION));
-			} else {
-				db.createCollection(MSG_HISTORY_COLLECTION);
-			}
-		}
-		msgHistoryCollection = db.getCollection(MSG_HISTORY_COLLECTION);
-
-		msgHistoryCollection.createIndex(new Document("ts", 1));
-		msgHistoryCollection.createIndex(new Document("to_hash", 1));
 	}
 
 	@Override
@@ -253,14 +257,14 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			}
 
 			// as instances of this MsgRepositoryIfc implemetations are cached
-			// this instance may be reinitialized but then there is no point 
+			// this instance may be reinitialized but then there is no point
 			// in recreation MongoClient instance
 			if (db == null) {
 				MongoDataSource ds = new MongoDataSource();
 				ds.initRepository(resource_uri, params);
 				setDataSource(ds);
 			}
-			
+
 			super.initRepository(resource_uri, params);
 		} catch (MongoException ex) {
 			throw new DBInitException("Could not connect to MongoDB server using URI = " + resource_uri, ex);
@@ -268,22 +272,109 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 	}
 
 	@Override
-	public Queue<Element> loadMessagesToJID( XMPPResourceConnection session, boolean delete )
-			throws UserNotFoundException {
-		return loadMessagesToJID( session, delete, null );
+	protected void loadExpiredQueue(int max) {
+		try {
+			FindIterable<Document> cursor = msgHistoryCollection.find(
+					new Document("expire-at", new Document("$lt", new Date())))
+					.sort(new Document("expire-at", 1))
+					.batchSize(batchSize)
+					.limit(max);
+
+			DomBuilderHandler domHandler = new DomBuilderHandler();
+
+			for (Document it : cursor) {
+				if (expiredQueue.size() < MAX_QUEUE_SIZE) {
+					break;
+				}
+
+				String msg_str = (String) it.get("message");
+
+				parser.parse(domHandler, msg_str.toCharArray(), 0, msg_str.length());
+
+				Queue<Element> elems = domHandler.getParsedElements();
+				Element msg = elems.poll();
+
+				if (msg == null) {
+					log.log(Level.INFO,
+					        "Something wrong, loaded offline message from DB but parsed no " + "XML elements: {0}",
+					        msg_str);
+				} else {
+					Date ts = (Date) it.get("ts");
+					MsgDBItem item = new MsgDBItem((ObjectId) it.get("_id"), msg, ts);
+
+					expiredQueue.offer(item);
+				}
+			}
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, "Problem getting offline messages from db: ", ex);
+		}
+
+		earliestOffline = Long.MAX_VALUE;
 	}
 
-	public Queue<Element> loadMessagesToJID(XMPPResourceConnection session, boolean delete, OfflineMessagesProcessor proc)
+	@Override
+	protected void loadExpiredQueue(Date expired) {
+		try {
+			if (expiredQueue.size() > 100 * MAX_QUEUE_SIZE) {
+				expiredQueue.clear();
+			}
+
+			FindIterable<Document> cursor = msgHistoryCollection.find(
+					new Document("expire-at", new Document("$lt", expired)))
+					.sort(new Document("expire-at", 1))
+					.batchSize(batchSize);
+
+			DomBuilderHandler domHandler = new DomBuilderHandler();
+			int counter = 0;
+
+			for (Document it : cursor) {
+				if (counter++ >= MAX_QUEUE_SIZE) {
+					break;
+				}
+
+				String msg_str = (String) it.get("message");
+
+				parser.parse(domHandler, msg_str.toCharArray(), 0, msg_str.length());
+
+				Queue<Element> elems = domHandler.getParsedElements();
+				Element msg = elems.poll();
+
+				if (msg == null) {
+					log.log(Level.INFO,
+					        "Something wrong, loaded offline message from DB but parsed no " + "XML elements: {0}",
+					        msg_str);
+				} else {
+					Date ts = (Date) it.get("ts");
+					MsgDBItem item = new MsgDBItem((ObjectId) it.get("_id"), msg, ts);
+
+					expiredQueue.offer(item);
+				}
+			}
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, "Problem getting offline messages from db: ", ex);
+		}
+
+		earliestOffline = Long.MAX_VALUE;
+	}
+
+	@Override
+	public Queue<Element> loadMessagesToJID(XMPPResourceConnection session, boolean delete)
 			throws UserNotFoundException {
-		return loadMessagesToJID( null, session, delete, proc );
+		return loadMessagesToJID(session, delete, null);
+	}
+
+	public Queue<Element> loadMessagesToJID(XMPPResourceConnection session, boolean delete,
+	                                        OfflineMessagesProcessor proc) throws UserNotFoundException {
+		return loadMessagesToJID(null, session, delete, proc);
 
 	}
 
 	@Override
-	public Queue<Element> loadMessagesToJID( List<String> db_ids, XMPPResourceConnection session, boolean delete, OfflineMessagesProcessor proc ) throws UserNotFoundException {
+	public Queue<Element> loadMessagesToJID(List<String> db_ids, XMPPResourceConnection session, boolean delete,
+	                                        OfflineMessagesProcessor proc) throws UserNotFoundException {
 		Queue<Element> result = null;
 		BareJID to = null;
-		
+
 		try {
 			to = session.getBareJID();
 			byte[] toHash = generateId(to);
@@ -295,11 +386,14 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 						.collect(Collectors.toList())));
 			}
 
-			FindIterable<Document> cursor = msgHistoryCollection.find(crit).sort(Sorts.ascending("ts")).batchSize(batchSize);
+			FindIterable<Document> cursor = msgHistoryCollection.find(crit)
+					.sort(Sorts.ascending("ts"))
+					.batchSize(batchSize);
 
 			List<Document> list = new ArrayList<Document>();
-			for ( Document it : cursor ) {
-				if (it.containsKey("expire-at") && ((Date)it.get("expire-at")).getTime() < System.currentTimeMillis()) {
+			for (Document it : cursor) {
+				if (it.containsKey("expire-at") &&
+						((Date) it.get("expire-at")).getTime() < System.currentTimeMillis()) {
 					continue;
 				}
 
@@ -307,38 +401,104 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			}
 
 			//Collections.sort(list, MSG_COMPARATOR);
-			result = parseLoadedMessages( proc, list);
+			result = parseLoadedMessages(proc, list);
 			result.stream().map(it -> it.getAttributeStaticStr("id")).forEach(it -> System.out.println(it));
 
 			if (delete) {
 				msgHistoryCollection.deleteMany(crit);
 			}
- 		} catch (Exception ex) {
+		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem adding new entry to DB: ", ex);
 		}
 		return result;
 
 	}
 
+	private Queue<Element> parseLoadedMessages(OfflineMessagesProcessor proc, List<Document> list) {
+		StringBuilder sb = new StringBuilder(1000);
+		Queue<Element> result = new LinkedList<Element>();
+		if (proc != null) {
+
+			for (Document it : list) {
+
+				final String msg = (String) it.get("message");
+
+				String msgId = null;
+				if (it.containsKey("ts")) {
+					msgId = dt.formatDateTime((Date) it.get("ts"));
+				}
+
+				if (msg != null) {
+					DomBuilderHandler domHandler = new DomBuilderHandler();
+
+					parser.parse(domHandler, msg.toCharArray(), 0, msg.length());
+					final Queue<Element> parsedElements = domHandler.getParsedElements();
+					Element msgEl = parsedElements.poll();
+					if (msgEl != null && msgId != null) {
+
+						proc.stamp(msgEl, msgId);
+
+						result.add(msgEl);
+					}
+				}
+
+			}
+
+		} else {
+			result = new LinkedList<Element>();
+
+			for (Document it : list) {
+				sb.append(it.get("message"));
+			}
+
+			if (sb.length() > 0) {
+				DomBuilderHandler domHandler = new DomBuilderHandler();
+				parser.parse(domHandler, sb.toString().toCharArray(), 0, sb.length());
+				result = domHandler.getParsedElements();
+			}
+		}
+		return result;
+	}
+
 	@Override
-	public boolean storeMessage(JID from, JID to, Date expired, Element msg, NonAuthUserRepository userRepo) throws UserNotFoundException {
+	public void setDataSource(MongoDataSource dataSource) {
+		db = dataSource.getDatabase();
+
+		if (!collectionExists(db, MSG_HISTORY_COLLECTION)) {
+			if (collectionExists(db, "msg_history")) {
+				db.getCollection("msg_history")
+						.renameCollection(new MongoNamespace(db.getName(), MSG_HISTORY_COLLECTION));
+			} else {
+				db.createCollection(MSG_HISTORY_COLLECTION);
+			}
+		}
+		msgHistoryCollection = db.getCollection(MSG_HISTORY_COLLECTION);
+
+		msgHistoryCollection.createIndex(new Document("ts", 1));
+		msgHistoryCollection.createIndex(new Document("to_hash", 1));
+	}
+
+	@Override
+	public boolean storeMessage(JID from, JID to, Date expired, Element msg, NonAuthUserRepository userRepo)
+			throws UserNotFoundException {
 		try {
 			byte[] fromHash = generateId(from.getBareJID());
 			byte[] toHash = generateId(to.getBareJID());
-			
+
 			Document crit = new Document("from_hash", fromHash).append("to_hash", toHash)
-					.append("from", from.getBareJID().toString()).append("to", to.getBareJID().toString());
-			
+					.append("from", from.getBareJID().toString())
+					.append("to", to.getBareJID().toString());
+
 			long count = msgHistoryCollection.count(crit);
 			long msgs_store_limit = getMsgsStoreLimit(to.getBareJID(), userRepo);
 			if (msgs_store_limit <= count) {
 				if (log.isLoggable(Level.FINEST)) {
 					log.log(Level.FINEST, "Message store limit ({0}) exceeded for message: {1}",
-							new Object[] { msgs_store_limit, Packet.elemToString(msg) });
+					        new Object[]{msgs_store_limit, Packet.elemToString(msg)});
 				}
 				return false;
 			}
-			
+
 			Document dto = crit;
 			if (expired != null) {
 				dto = new Document(crit);
@@ -350,15 +510,15 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 			MSG_TYPES valueOf;
 			try {
 				final String name = msg.getName();
-				valueOf = MSG_TYPES.valueOf( name );
-			} catch ( IllegalArgumentException e ) {
+				valueOf = MSG_TYPES.valueOf(name);
+			} catch (IllegalArgumentException e) {
 				valueOf = MSG_TYPES.none;
 			}
 
-			dto.append( "msg_type", valueOf.toString());
+			dto.append("msg_type", valueOf.toString());
 			dto.append("message", msg.toString());
 			msgHistoryCollection.insertOne(dto);
-		
+
 			if (expired != null) {
 				if (expired.getTime() < earliestOffline) {
 					earliestOffline = expired.getTime();
@@ -376,7 +536,9 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 
 	@Override
 	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
-		for (Document doc : msgHistoryCollection.find().batchSize(1000).projection(fields(include("_id", "from", "to")))) {
+		for (Document doc : msgHistoryCollection.find()
+				.batchSize(1000)
+				.projection(fields(include("_id", "from", "to")))) {
 			String from = (String) doc.get("from");
 			String to = (String) doc.get("to");
 
@@ -390,159 +552,11 @@ public class MongoMsgRepository extends MsgRepository<ObjectId,MongoDataSource> 
 				continue;
 			}
 
-			Document update = new Document("from_hash", newFromHash)
-					.append("to_hash", newToHash);
+			Document update = new Document("from_hash", newFromHash).append("to_hash", newToHash);
 
 			msgHistoryCollection.updateOne(new Document("_id", doc.get("_id")), new Document("$set", update));
 		}
 		return SchemaLoader.Result.ok;
-	}
-
-	@Override
-	protected void deleteMessage(ObjectId dbId) {
-		try {
-			msgHistoryCollection.deleteOne(new Document("_id", dbId));
-		} catch (MongoException ex) {
-			
-		}
-	}
-	
-	@Override
-	protected void loadExpiredQueue(int max) {
-		try {
-			FindIterable<Document> cursor = msgHistoryCollection.find(new Document("expire-at",
-					new Document("$lt", new Date()))).sort(new Document("expire-at", 1)).batchSize(batchSize).limit(max);
-
-			DomBuilderHandler domHandler = new DomBuilderHandler();
-
-			for ( Document it : cursor ) {
-				if (expiredQueue.size() < MAX_QUEUE_SIZE)
-					break;
-
-				String msg_str = (String) it.get("message");
-
-				parser.parse(domHandler, msg_str.toCharArray(), 0, msg_str.length());
-
-				Queue<Element> elems = domHandler.getParsedElements();
-				Element msg = elems.poll();
-
-				if (msg == null) {
-					log.log(Level.INFO,
-							"Something wrong, loaded offline message from DB but parsed no "
-							+ "XML elements: {0}", msg_str);
-				} else {
-					Date ts = (Date) it.get("ts");
-					MsgDBItem item = new MsgDBItem((ObjectId) it.get("_id"), msg, ts);
-
-					expiredQueue.offer(item);
-				}
-			}
-		} catch (MongoException ex) {
-			log.log(Level.WARNING, "Problem getting offline messages from db: ", ex);
-		}
-		
-		earliestOffline = Long.MAX_VALUE;
-	}
-	
-	@Override
-	protected void loadExpiredQueue(Date expired) {
-		try {
-			if (expiredQueue.size() > 100 * MAX_QUEUE_SIZE) {
-				expiredQueue.clear();
-			}
-			
-			FindIterable<Document> cursor = msgHistoryCollection.find(new Document("expire-at",
-					new Document("$lt", expired))).sort(new Document("expire-at", 1)).batchSize(batchSize);
-
-			DomBuilderHandler domHandler = new DomBuilderHandler();
-			int counter = 0;
-
-			for (Document it : cursor) {
-				if (counter++ >= MAX_QUEUE_SIZE)
-					break;
-
-				String msg_str = (String) it.get("message");
-
-				parser.parse(domHandler, msg_str.toCharArray(), 0, msg_str.length());
-
-				Queue<Element> elems = domHandler.getParsedElements();
-				Element msg = elems.poll();
-
-				if (msg == null) {
-					log.log(Level.INFO,
-							"Something wrong, loaded offline message from DB but parsed no "
-							+ "XML elements: {0}", msg_str);
-				} else {
-					Date ts = (Date) it.get("ts");
-					MsgDBItem item = new MsgDBItem((ObjectId) it.get("_id"), msg, ts);
-
-					expiredQueue.offer(item);
-				}
-			}
-		} catch (MongoException ex) {
-			log.log(Level.WARNING, "Problem getting offline messages from db: ", ex);
-		}
-		
-		earliestOffline = Long.MAX_VALUE;		
-	}
-
-	private byte[] generateId(BareJID user) throws TigaseDBException {
-		return  calculateHash(user.toString().toLowerCase());
-	}
-
-	private byte[] calculateHash(String user) throws TigaseDBException {
-		try {
-			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.getBytes(UTF8));
-		} catch (NoSuchAlgorithmException ex) {
-			throw new TigaseDBException("Should not happen!!", ex);
-		}
-	}	
-
-	private Queue<Element> parseLoadedMessages( OfflineMessagesProcessor proc, List<Document> list ) {
-		StringBuilder sb = new StringBuilder( 1000 );
-		Queue<Element> result = new LinkedList<Element>();
-		if ( proc != null ){
-
-			for ( Document it : list ) {
-
-				final String msg = (String) it.get( "message" );
-
-				String msgId = null;
-				if ( it.containsKey( "ts" ) ){
-					msgId = dt.formatDateTime( (Date) it.get( "ts" ) );
-				}
-
-				if ( msg != null ){
-					DomBuilderHandler domHandler = new DomBuilderHandler();
-
-					parser.parse( domHandler, msg.toCharArray(), 0, msg.length() );
-					final Queue<Element> parsedElements = domHandler.getParsedElements();
-					Element msgEl = parsedElements.poll();
-					if ( msgEl != null && msgId != null ){
-
-						proc.stamp( msgEl, msgId );
-
-						result.add( msgEl );
-					}
-				}
-
-			}
-
-		} else {
-			result = new LinkedList<Element>();
-
-			for ( Document it : list ) {
-				sb.append( it.get( "message" ) );
-			}
-
-			if ( sb.length() > 0 ){
-				DomBuilderHandler domHandler = new DomBuilderHandler();
-				parser.parse( domHandler, sb.toString().toCharArray(), 0, sb.length() );
-				result = domHandler.getParsedElements();
-			}
-		}
-		return result;
 	}
 
 }

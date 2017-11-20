@@ -33,13 +33,28 @@ public class Helper {
 
 	public static boolean collectionExists(MongoDatabase db, String collection) {
 		for (String name : db.listCollectionNames()) {
-			if (collection.equals(name))
+			if (collection.equals(name)) {
 				return true;
+			}
 		}
 		return false;
 	}
 
-	public static void indexCreateOrReplace(MongoCollection<Document> collection, Document index, IndexOptions options) {
+	public static String createIndexName(Document index) {
+		StringBuilder sb = new StringBuilder();
+		for (Map.Entry<String, Object> e : index.entrySet()) {
+			if (sb.length() > 0) {
+				sb.append("_");
+			}
+			sb.append(e.getKey());
+			sb.append("_");
+			sb.append(e.getValue());
+		}
+		return sb.toString();
+	}
+
+	public static void indexCreateOrReplace(MongoCollection<Document> collection, Document index,
+	                                        IndexOptions options) {
 		String indexName = createIndexName(index);
 		boolean drop = false;
 		for (Document idx : collection.listIndexes()) {
@@ -51,17 +66,5 @@ public class Helper {
 			collection.dropIndex(indexName);
 		}
 		collection.createIndex(index, options);
-	}
-
-	public static String createIndexName(Document index) {
-		StringBuilder sb = new StringBuilder();
-		for (Map.Entry<String,Object> e : index.entrySet()) {
-			if (sb.length() > 0)
-				sb.append("_");
-			sb.append(e.getKey());
-			sb.append("_");
-			sb.append(e.getValue());
-		}
-		return sb.toString();
 	}
 }

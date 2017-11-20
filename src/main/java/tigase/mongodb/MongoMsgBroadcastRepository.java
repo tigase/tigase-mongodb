@@ -55,9 +55,11 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 04.10.2016.
  */
-@Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-offline-message-broadcast", name = "Tigase XMPP Server (Offline Messages [broadcast])")
-public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId,MongoDataSource> {
+@Repository.Meta(supportedUris = {"mongodb:.*"})
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID +
+		"-offline-message-broadcast", name = "Tigase XMPP Server (Offline Messages [broadcast])")
+public class MongoMsgBroadcastRepository
+		extends MsgBroadcastRepository<ObjectId, MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger(MongoMsgBroadcastRepository.class.getCanonicalName());
 
@@ -69,25 +71,60 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 	private static final String MSG_BROADCAST_RECP_COLLECTION = "tig_broadcast_recipients";
 
 	private static final Charset UTF8 = Charset.forName("UTF-8");
-
-	private MongoDatabase db;
-	private MongoCollection<Document> broadcastMsgCollection;
-	private MongoCollection<Document> broadcastMsgRecpCollection;
-
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
+	private MongoCollection<Document> broadcastMsgCollection;
+	private MongoCollection<Document> broadcastMsgRecpCollection;
+	private MongoDatabase db;
+
+	@Override
+	protected void ensureBroadcastMessageRecipient(String id, BareJID recipient) {
+		try {
+			byte[] recipientId = generateId(recipient);
+			Document crit = new Document("msg_id", id).append("recipient_id", recipientId)
+					.append("recipient", recipient.toString());
+			broadcastMsgRecpCollection.updateOne(crit, Updates.set("recipient_id", recipientId),
+			                                     new UpdateOptions().upsert(true));
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem inserting messages recipients for broadcast to db: ", ex);
+		}
+	}
+
+	private byte[] generateId(BareJID user) throws TigaseDBException {
+		try {
+			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
+			return md.digest(user.toString().getBytes(UTF8));
+		} catch (NoSuchAlgorithmException ex) {
+			throw new TigaseDBException("Should not happen!!", ex);
+		}
+	}
+
+	@Override
+	protected void insertBroadcastMessage(String id, Element msg, Date expire, BareJID recipient) {
+		try {
+			broadcastMsgCollection.updateOne(new Document("_id", id), new Document("$setOnInsert",
+			                                                                       new Document("expire",
+			                                                                                    expire).append("msg",
+			                                                                                                   msg.toString())),
+			                                 new UpdateOptions().upsert(true));
+		} catch (MongoException ex) {
+			log.log(Level.WARNING, "Problem inserting messages for broadcast to db: ", ex);
+		}
+	}
 
 	@Override
 	public void loadMessagesToBroadcast() {
 		try {
 			Set<String> oldMessages = new HashSet<String>(broadcastMessages.keySet());
-			FindIterable<Document > cursor = broadcastMsgCollection.find(new Document("expire", new Document("$gt", new Date()))).batchSize(batchSize);
+			FindIterable<Document> cursor = broadcastMsgCollection.find(
+					new Document("expire", new Document("$gt", new Date()))).batchSize(batchSize);
 			DomBuilderHandler domHandler = new DomBuilderHandler();
-			for ( Document dto : cursor ) {
+			for (Document dto : cursor) {
 				String id = dto.getString("_id");
 				oldMessages.remove(id);
-				if (broadcastMessages.containsKey(id))
+				if (broadcastMessages.containsKey(id)) {
 					continue;
+				}
 
 				Date expire = (Date) dto.get("expire");
 				char[] msgChars = ((String) dto.get("msg")).toCharArray();
@@ -96,8 +133,9 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 
 				Queue<Element> elems = domHandler.getParsedElements();
 				Element msg = elems.poll();
-				if (msg == null)
+				if (msg == null) {
 					continue;
+				}
 
 				broadcastMessages.put(id, new BroadcastMsg(null, msg, expire));
 			}
@@ -105,35 +143,14 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 				broadcastMessages.remove(key);
 			}
 			broadcastMessages.entrySet().forEach(e -> {
-				broadcastMsgRecpCollection.find(new Document("msg_id", e.getKey())).forEach((Consumer<? super Document>) dto -> {
-					JID recipient = JID.jidInstanceNS(dto.getString("recipient"));
-					e.getValue().markAsSent(recipient);
-				});
+				broadcastMsgRecpCollection.find(new Document("msg_id", e.getKey()))
+						.forEach((Consumer<? super Document>) dto -> {
+							JID recipient = JID.jidInstanceNS(dto.getString("recipient"));
+							e.getValue().markAsSent(recipient);
+						});
 			});
 		} catch (MongoException ex) {
 			log.log(Level.WARNING, "Problem loading messages for broadcast from db: ", ex);
-		}
-	}
-
-
-	@Override
-	protected void ensureBroadcastMessageRecipient(String id, BareJID recipient) {
-		try {
-			byte[] recipientId = generateId(recipient);
-			Document crit = new Document("msg_id", id).append("recipient_id", recipientId).append("recipient", recipient.toString());
-			broadcastMsgRecpCollection.updateOne(crit, Updates.set("recipient_id", recipientId), new UpdateOptions().upsert(true));
-		} catch (Exception ex) {
-			log.log(Level.WARNING, "Problem inserting messages recipients for broadcast to db: ", ex);
-		}
-	}
-
-	@Override
-	protected void insertBroadcastMessage(String id, Element msg, Date expire, BareJID recipient) {
-		try {
-			broadcastMsgCollection.updateOne(new Document("_id", id),
-											 new Document("$setOnInsert", new Document("expire", expire).append("msg", msg.toString())), new UpdateOptions().upsert(true));
-		} catch (MongoException ex) {
-			log.log(Level.WARNING, "Problem inserting messages for broadcast to db: ", ex);
 		}
 	}
 
@@ -143,7 +160,8 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 
 		if (!collectionExists(db, MSG_BROADCAST_COLLECTION)) {
 			if (collectionExists(db, "msg_broadcast")) {
-				db.getCollection("msg_broadcast").renameCollection(new MongoNamespace(db.getName(), MSG_BROADCAST_COLLECTION));
+				db.getCollection("msg_broadcast")
+						.renameCollection(new MongoNamespace(db.getName(), MSG_BROADCAST_COLLECTION));
 			} else {
 				db.createCollection(MSG_BROADCAST_COLLECTION);
 			}
@@ -154,7 +172,8 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 
 		if (!collectionExists(db, MSG_BROADCAST_RECP_COLLECTION)) {
 			if (collectionExists(db, "msg_broadcast_recp")) {
-				db.getCollection("msg_broadcast_recp").renameCollection(new MongoNamespace(db.getName(), MSG_BROADCAST_RECP_COLLECTION));
+				db.getCollection("msg_broadcast_recp")
+						.renameCollection(new MongoNamespace(db.getName(), MSG_BROADCAST_RECP_COLLECTION));
 			} else {
 				db.createCollection(MSG_BROADCAST_RECP_COLLECTION);
 			}
@@ -162,15 +181,7 @@ public class MongoMsgBroadcastRepository extends MsgBroadcastRepository<ObjectId
 		broadcastMsgRecpCollection = db.getCollection(MSG_BROADCAST_RECP_COLLECTION);
 
 		broadcastMsgRecpCollection.createIndex(new Document("msg_id", 1));
-		broadcastMsgRecpCollection.createIndex(new Document("msg_id", 1).append("recipient_id", 1), new IndexOptions().unique(true));
-	}
-
-	private byte[] generateId(BareJID user) throws TigaseDBException {
-		try {
-			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
-			return md.digest(user.toString().getBytes(UTF8));
-		} catch (NoSuchAlgorithmException ex) {
-			throw new TigaseDBException("Should not happen!!", ex);
-		}
+		broadcastMsgRecpCollection.createIndex(new Document("msg_id", 1).append("recipient_id", 1),
+		                                       new IndexOptions().unique(true));
 	}
 }

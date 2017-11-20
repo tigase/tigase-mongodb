@@ -44,12 +44,21 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- *
  * @author andrzej
  */
 // Do not remove - it imports tests from Tigase Message Archiving project
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-public class MongoMessageArchiveRepositoryTest extends tigase.archive.db.AbstractMessageArchiveRepositoryTest {
+public class MongoMessageArchiveRepositoryTest
+		extends tigase.archive.db.AbstractMessageArchiveRepositoryTest {
+
+	private byte[] generateId(String in) throws RepositoryException {
+		try {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			return md.digest(in.getBytes());
+		} catch (NoSuchAlgorithmException ex) {
+			throw new RepositoryException("Should not happen!!", ex);
+		}
+	}
 
 	private MongoCollection<Document> getCollection(String name) {
 		return ((MongoDataSource) dataSource).getDatabase().getCollection(name);
@@ -71,7 +80,7 @@ public class MongoMessageArchiveRepositoryTest extends tigase.archive.db.Abstrac
 
 		String type = "chat";
 		Date timestamp = new Date();
-		Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24*60*60*1000)));
+		Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24 * 60 * 60 * 1000)));
 		byte[] hash = "hash-dummy".getBytes();
 
 		Document dto = new Document("owner", owner).append("owner_id", oid)
@@ -99,12 +108,12 @@ public class MongoMessageArchiveRepositoryTest extends tigase.archive.db.Abstrac
 		repo.queryItems(crit, (QueryCriteria qc, MAMRepository.Item item) -> {
 			item.getMessage().setName(((MessageArchiveRepository.Item) item).getDirection().toElementName());
 			msgs.add(item.getMessage());
-			if (qc.getRsm().getFirst() == null)
+			if (qc.getRsm().getFirst() == null) {
 				qc.getRsm().setFirst(item.getId());
+			}
 			qc.getRsm().setLast(item.getId());
 		});
 		Assert.assertEquals("Incorrect number of message", 0, msgs.size());
-
 
 		msgs.clear();
 
@@ -113,22 +122,14 @@ public class MongoMessageArchiveRepositoryTest extends tigase.archive.db.Abstrac
 		repo.queryItems(crit, (QueryCriteria qc, MAMRepository.Item item) -> {
 			item.getMessage().setName(((MessageArchiveRepository.Item) item).getDirection().toElementName());
 			msgs.add(item.getMessage());
-			if (qc.getRsm().getFirst() == null)
+			if (qc.getRsm().getFirst() == null) {
 				qc.getRsm().setFirst(item.getId());
+			}
 			qc.getRsm().setLast(item.getId());
 		});
 		Assert.assertEquals("Incorrect number of message", 1, msgs.size());
 
 		repo.removeItems(ownerJid, buddyJid.getBareJID().toString(), start, new Date());
-	}
-
-	private byte[] generateId(String in) throws RepositoryException {
-		try {
-			MessageDigest md = MessageDigest.getInstance("SHA-256");
-			return md.digest(in.getBytes());
-		} catch (NoSuchAlgorithmException ex) {
-			throw new RepositoryException("Should not happen!!", ex);
-		}
 	}
 
 }

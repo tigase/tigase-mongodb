@@ -44,7 +44,10 @@ import tigase.xmpp.jid.BareJID;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -56,7 +59,7 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 20.10.2016.
  */
-@Repository.Meta( supportedUris = { "mongodb:.*" } )
+@Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME)
 public class MongoMucDAO
 		extends AbstractMucDAO<MongoDataSource, byte[]> {
@@ -68,13 +71,20 @@ public class MongoMucDAO
 	private static final String ROOMS_COLLECTION = "tig_muc_rooms";
 	private static final String ROOM_AFFILIATIONS_COLLECTION = "tig_muc_room_affiliations";
 	private static final Charset UTF8 = Charset.forName("UTF-8");
-
+	protected MongoCollection<Document> roomAffilaitionsCollection;
+	protected MongoCollection<Document> roomsCollection;
+	private MongoDatabase db;
 	@Inject
 	private Room.RoomFactory roomFactory;
 
-	private MongoDatabase db;
-	protected MongoCollection<Document> roomsCollection;
-	protected MongoCollection<Document> roomAffilaitionsCollection;
+	protected byte[] calculateHash(String user) throws TigaseDBException {
+		try {
+			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
+			return md.digest(user.getBytes(UTF8));
+		} catch (NoSuchAlgorithmException ex) {
+			throw new TigaseDBException("Should not happen!!", ex);
+		}
+	}
 
 	@Override
 	public byte[] createRoom(RoomWithId<byte[]> room) throws RepositoryException {
@@ -113,6 +123,10 @@ public class MongoMucDAO
 
 	}
 
+	protected byte[] generateId(BareJID user) throws TigaseDBException {
+		return calculateHash(user.toString().toLowerCase());
+	}
+
 	@Override
 	public Map<BareJID, Affiliation> getAffiliations(RoomWithId<byte[]> room) throws RepositoryException {
 		Map<BareJID, Affiliation> affiliations = new HashMap<>();
@@ -145,8 +159,9 @@ public class MongoMucDAO
 
 			Document roomDoc = roomsCollection.find(eq("_id", roomId)).first();
 
-			if (roomDoc == null)
+			if (roomDoc == null) {
 				return null;
+			}
 
 			Date date = roomDoc.getDate("creation_date");
 			BareJID creator = BareJID.bareJIDInstance(roomDoc.getString("creator"));
@@ -195,39 +210,13 @@ public class MongoMucDAO
 				roomAffilaitionsCollection.deleteOne(crit);
 			} else {
 				Bson update = Updates.combine(Updates.setOnInsert("jid", jid.toString()),
-											  Updates.set("affiliation", affiliation.name()));
+				                              Updates.set("affiliation", affiliation.name()));
 				roomAffilaitionsCollection.updateOne(crit, update, new UpdateOptions().upsert(true));
 			}
 		} catch (Exception ex) {
-			throw new RepositoryException("Error while setting affiliation for room " + room.getRoomJID() + " for jid " + jid + " to " + affiliation.name(), ex);
-		}
-	}
-
-	@Override
-	public void setSubject(RoomWithId<byte[]> room, String subject, String creatorNickname, Date changeDate)
-			throws RepositoryException {
-		try {
-			Bson crit = eq("_id", room.getId());
-			Bson update = new Document("subject", subject).append("subject_creator_nick", creatorNickname)
-					.append("subject_date", changeDate);
-			roomsCollection.updateOne(crit, new Document("$set", update));
-		} catch (Exception ex) {
-			throw new RepositoryException("Error while setting subject for room " + room.getRoomJID() + " to " + subject + " by " + creatorNickname, ex);
-		}
-	}
-
-	@Override
-	public void updateRoomConfig(RoomConfig roomConfig) throws RepositoryException {
-		try {
-			String roomName = roomConfig.getRoomName();
-			Bson crit = eq("_id", generateId(roomConfig.getRoomJID()));
-			Bson update = Updates.combine(Updates.set("config", roomConfig.getAsElement().toString()),
-										  Updates.set("name",
-													  (roomName != null && !roomName.isEmpty()) ? roomName : null));
-
-			roomsCollection.updateOne(crit, update);
-		} catch (Exception ex) {
-			throw new RepositoryException("Error updating configuration of room " + roomConfig.getRoomJID(), ex);
+			throw new RepositoryException(
+					"Error while setting affiliation for room " + room.getRoomJID() + " for jid " + jid + " to " +
+							affiliation.name(), ex);
 		}
 	}
 
@@ -246,19 +235,37 @@ public class MongoMucDAO
 		}
 		roomAffilaitionsCollection = db.getCollection(ROOM_AFFILIATIONS_COLLECTION);
 		roomAffilaitionsCollection.createIndex(new Document("room_id", 1));
-		roomAffilaitionsCollection.createIndex(new Document("room_id", 1).append("jid_id", 1), new IndexOptions().unique(true));
+		roomAffilaitionsCollection.createIndex(new Document("room_id", 1).append("jid_id", 1),
+		                                       new IndexOptions().unique(true));
 	}
 
-	protected byte[] generateId(BareJID user) throws TigaseDBException {
-		return calculateHash(user.toString().toLowerCase());
-	}
-
-	protected byte[] calculateHash(String user) throws TigaseDBException {
+	@Override
+	public void setSubject(RoomWithId<byte[]> room, String subject, String creatorNickname, Date changeDate)
+			throws RepositoryException {
 		try {
-			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-			return md.digest(user.getBytes(UTF8));
-		} catch (NoSuchAlgorithmException ex) {
-			throw new TigaseDBException("Should not happen!!", ex);
+			Bson crit = eq("_id", room.getId());
+			Bson update = new Document("subject", subject).append("subject_creator_nick", creatorNickname)
+					.append("subject_date", changeDate);
+			roomsCollection.updateOne(crit, new Document("$set", update));
+		} catch (Exception ex) {
+			throw new RepositoryException(
+					"Error while setting subject for room " + room.getRoomJID() + " to " + subject + " by " +
+							creatorNickname, ex);
+		}
+	}
+
+	@Override
+	public void updateRoomConfig(RoomConfig roomConfig) throws RepositoryException {
+		try {
+			String roomName = roomConfig.getRoomName();
+			Bson crit = eq("_id", generateId(roomConfig.getRoomJID()));
+			Bson update = Updates.combine(Updates.set("config", roomConfig.getAsElement().toString()),
+			                              Updates.set("name",
+			                                          (roomName != null && !roomName.isEmpty()) ? roomName : null));
+
+			roomsCollection.updateOne(crit, update);
+		} catch (Exception ex) {
+			throw new RepositoryException("Error updating configuration of room " + roomConfig.getRoomJID(), ex);
 		}
 	}
 }

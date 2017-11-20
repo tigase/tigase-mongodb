@@ -41,22 +41,21 @@ import java.util.logging.Logger;
 
 import static tigase.mongodb.Helper.collectionExists;
 
-@Repository.Meta( supportedUris = { "mongodb:.*" } )
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID+"-cluster", name = "Tigase XMPP Server (Cluster)")
-public class ClConMongoRepository extends ClConConfigRepository
-				implements ClusterRepoConstants, ComponentRepositoryDataSourceAware<ClusterRepoItem,MongoDataSource> {
+@Repository.Meta(supportedUris = {"mongodb:.*"})
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-cluster", name = "Tigase XMPP Server (Cluster)")
+public class ClConMongoRepository
+		extends ClConConfigRepository
+		implements ClusterRepoConstants, ComponentRepositoryDataSourceAware<ClusterRepoItem, MongoDataSource> {
 
 	private static final Logger log = Logger.getLogger(ClConMongoRepository.class.getCanonicalName());
 
 	private static final int DEF_BATCH_SIZE = 100;
 
 	private static final String CLUSTER_NODES = "tig_cluster_nodes";
-	
-	private MongoDatabase db;
-	private MongoCollection<Document> clusterNodes;
-
 	@ConfigField(desc = "Batch size", alias = "batch-size")
 	private int batchSize = DEF_BATCH_SIZE;
+	private MongoCollection<Document> clusterNodes;
+	private MongoDatabase db;
 
 	@Override
 	public void destroy() {
@@ -69,10 +68,14 @@ public class ClConMongoRepository extends ClConConfigRepository
 	//~--- methods --------------------------------------------------------------
 
 	@Override
+	public ClusterRepoItem getItemInstance() {
+		return new ClusterRepoItem();
+	}
+
+	@Override
 	@Deprecated
-	public void initRepository(String resource_uri, Map<String, String> params)
-					throws DBInitException {
-		super.initRepository(resource_uri, params);	
+	public void initRepository(String resource_uri, Map<String, String> params) throws DBInitException {
+		super.initRepository(resource_uri, params);
 		try {
 			if (db == null) {
 				MongoDataSource ds = new MongoDataSource();
@@ -85,8 +88,41 @@ public class ClConMongoRepository extends ClConConfigRepository
 	}
 
 	@Override
-	public void removeItem( String key ) {
-		super.removeItem( key );
+	public void reload() {
+		if ((System.currentTimeMillis() - lastReloadTime) <= (autoReloadInterval * lastReloadTimeFactor)) {
+			if (log.isLoggable(Level.FINEST)) {
+				log.log(Level.FINEST, "Last reload performed in {0}, skipping: ",
+				        (System.currentTimeMillis() - lastReloadTime));
+			}
+			return;
+		}
+		lastReloadTime = System.currentTimeMillis();
+
+		super.reload();
+		try {
+			FindIterable<Document> cursor = db.getCollection(CLUSTER_NODES).find().batchSize(batchSize);
+
+			for (Document dto : cursor) {
+
+				ClusterRepoItem item = getItemInstance();
+				item.setHostname((String) dto.get("_id"));
+				item.setSecondaryHostname((String) dto.get("secondary"));
+				item.setPassword((String) dto.get("password"));
+				item.setLastUpdate(((Date) dto.get("updated")).getTime());
+				item.setPort((Integer) dto.get("port"));
+				item.setCpuUsage((Double) dto.get("cpu_usage"));
+				item.setMemUsage((Double) dto.get("mem_usage"));
+				itemLoaded(item);
+			}
+
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem getting elements from DB: ", ex);
+		}
+	}
+
+	@Override
+	public void removeItem(String key) {
+		super.removeItem(key);
 
 		try {
 			Document crit = new Document("_id", key);
@@ -108,76 +144,38 @@ public class ClConMongoRepository extends ClConConfigRepository
 	}
 
 	@Override
-	public void storeItem(tigase.cluster.repo.ClusterRepoItem item) {
-		try {
-			Document crit = new Document("_id", item.getHostname());
-			Document dto = new Document("password", item.getPassword())
-					.append("secondary", item.getSecondaryHostname())
-					.append("updated", new Date()).append("port", item.getPortNo())
-					.append("cpu_usage", item.getCpuUsage()).append("mem_usage", item.getMemUsage());
-			db.getCollection(CLUSTER_NODES).updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
-		} catch (Exception ex) {
-			log.log(Level.WARNING, "Problem setting element to DB: ", ex);
-		}
-	}	
-	
-	@Override
-	public void reload() {
-		if ( ( System.currentTimeMillis() - lastReloadTime ) <= ( autoReloadInterval * lastReloadTimeFactor ) ){
-			if ( log.isLoggable( Level.FINEST ) ){
-				log.log( Level.FINEST, "Last reload performed in {0}, skipping: ", ( System.currentTimeMillis() - lastReloadTime ) );
-			}
-			return;
-		}
-		lastReloadTime = System.currentTimeMillis();
-
-		super.reload();
-		try {
-			FindIterable<Document> cursor = db.getCollection(CLUSTER_NODES).find().batchSize(batchSize);
-			
-			for (Document dto : cursor) {
-				
-				ClusterRepoItem item = getItemInstance();
-					item.setHostname((String) dto.get("_id"));
-					item.setSecondaryHostname((String) dto.get("secondary"));
-					item.setPassword((String) dto.get("password"));
-					item.setLastUpdate(((Date) dto.get("updated")).getTime());
-					item.setPort((Integer) dto.get("port"));
-					item.setCpuUsage((Double) dto.get("cpu_usage"));
-					item.setMemUsage((Double) dto.get("mem_usage"));				
-				itemLoaded(item);
-			}
-			
-		} catch (Exception ex) {
-			log.log(Level.WARNING, "Problem getting elements from DB: ", ex);
-		}
-	}
-	
-	@Override
-	public ClusterRepoItem getItemInstance() {
-		return new ClusterRepoItem();
-	}
-	
-	@Override
 	public void store() {
 		// Do nothing everything is written on demand to DB
 	}
 
-	private class ClusterRepoItem extends tigase.cluster.repo.ClusterRepoItem {
+	@Override
+	public void storeItem(tigase.cluster.repo.ClusterRepoItem item) {
+		try {
+			Document crit = new Document("_id", item.getHostname());
+			Document dto = new Document("password", item.getPassword()).append("secondary", item.getSecondaryHostname())
+					.append("updated", new Date())
+					.append("port", item.getPortNo())
+					.append("cpu_usage", item.getCpuUsage())
+					.append("mem_usage", item.getMemUsage());
+			db.getCollection(CLUSTER_NODES)
+					.updateOne(crit, new Document("$set", dto), new UpdateOptions().upsert(true));
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Problem setting element to DB: ", ex);
+		}
+	}
+
+	private class ClusterRepoItem
+			extends tigase.cluster.repo.ClusterRepoItem {
 
 		protected void setCpuUsage(Double cpuUsage) {
 			super.setCpuUsage(cpuUsage == null ? 0 : cpuUsage.floatValue());
 		}
-		
-		protected void setMemUsage(Double memUsage) {
-			super.setMemUsage(memUsage == null ? 0 : memUsage.floatValue());
-		}		
 
 		@Override
 		protected void setCpuUsage(float cpuUsage) {
 			super.setCpuUsage(cpuUsage);
 		}
-		
+
 		@Override
 		protected void setHostname(String hostname) {
 			super.setHostname(hostname);
@@ -186,6 +184,10 @@ public class ClConMongoRepository extends ClConConfigRepository
 		@Override
 		protected void setLastUpdate(long update) {
 			super.setLastUpdate(update);
+		}
+
+		protected void setMemUsage(Double memUsage) {
+			super.setMemUsage(memUsage == null ? 0 : memUsage.floatValue());
 		}
 
 		@Override
@@ -204,8 +206,8 @@ public class ClConMongoRepository extends ClConConfigRepository
 		}
 
 		@Override
-		protected void setSecondaryHostname( String secondaryHostname ) {
-			super.setSecondaryHostname( secondaryHostname );
+		protected void setSecondaryHostname(String secondaryHostname) {
+			super.setSecondaryHostname(secondaryHostname);
 		}
 
 	}

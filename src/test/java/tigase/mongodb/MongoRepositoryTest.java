@@ -34,10 +34,10 @@ import java.util.HashMap;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 /**
- *
  * @author andrzej
  */
 public class MongoRepositoryTest {
@@ -60,8 +60,12 @@ public class MongoRepositoryTest {
 		}
 	};
 	private MongoDataSource dataSource;
-	private MongoRepository repo; 
-	
+	private MongoRepository repo;
+
+	private void prepareUserAutoCreateRepo() throws Exception {
+		repo.autoCreateUser = true;
+	}
+
 	@Before
 	public void setup() throws DBInitException {
 		dataSource = new MongoDataSource();
@@ -69,17 +73,174 @@ public class MongoRepositoryTest {
 		repo = new MongoRepository();
 		repo.setDataSource(dataSource);
 	}
-	
+
 	@After
 	public void tearDown() throws TigaseDBException {
 		repo.removeUser(BareJID.bareJIDInstanceNS("test-1@example.com"));
 		repo = null;
 	}
-	
+
+	@Test
+	public void testAddDataListUserAutoCreate() throws Exception {
+		prepareUserAutoCreateRepo();
+
+		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
+		String[] data = new String[]{"test1", "test2", "test3"};
+
+		repo.addDataList(userJID, "test-node", "test-key", data);
+		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
+		Assert.assertArrayEquals(data, repo.getDataList(userJID, "test-node", "test-key"));
+	}
+
+	@Test
+	public void testData() throws TigaseStringprepException, TigaseDBException {
+		BareJID jid = BareJID.bareJIDInstance("test-1@example.com");
+
+		repo.addUser(jid);
+		Assert.assertTrue("User creation failed", repo.userExists(jid));
+
+		repo.setData(jid, "key1", "test value 1");
+		String[] keys = repo.getKeys(jid);
+		Assert.assertArrayEquals(new String[]{"key1"}, keys);
+
+		repo.setData(jid, "test/node", "key2", "test value 2");
+		keys = repo.getKeys(jid);
+		Assert.assertArrayEquals(new String[]{"key1"}, keys);
+		keys = repo.getKeys(jid, "test/node");
+		Assert.assertArrayEquals(new String[]{"key2"}, keys);
+		repo.setDataList(jid, "test/node2", "list", new String[]{"item1", "item2"});
+		keys = repo.getKeys(jid, "test/node2");
+		Assert.assertArrayEquals(new String[]{"list"}, keys);
+		String[] subnodes = repo.getSubnodes(jid);
+		Assert.assertArrayEquals(new String[]{"test"}, subnodes);
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[]{"node", "node2"}, subnodes);
+		repo.setDataList(jid, "test/node3/subnode1", "list", new String[]{"item1", "item2"});
+		subnodes = repo.getSubnodes(jid, "test/");
+		Assert.assertArrayEquals(new String[]{"node", "node2", "node3"}, subnodes);
+
+		// cleaning up
+		repo.removeData(jid, "key1");
+		keys = repo.getKeys(jid);
+		Assert.assertArrayEquals(new String[]{}, keys);
+		repo.removeData(jid, "test/node", "key2");
+		subnodes = repo.getSubnodes(jid);
+		Assert.assertArrayEquals(new String[]{"test"}, subnodes);
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[]{"node2", "node3"}, subnodes);
+		repo.removeData(jid, "test/node2", "list");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(new String[]{"node3"}, subnodes);
+		repo.removeData(jid, "test/node3/subnode1", "list");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+
+		repo.setDataList(jid, "test/node2", "list", new String[]{"item1", "item2"});
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[]{"node2"}, subnodes);
+		repo.removeSubnode(jid, "test");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+
+		// once more
+		repo.setDataList(jid, "test/node2", "list", new String[]{"item1", "item2"});
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[]{"node2"}, subnodes);
+		repo.removeSubnode(jid, "test/");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+
+		// once more
+		repo.setDataList(jid, "test/node2/", "list", new String[]{"item1", "item2"});
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertArrayEquals(new String[]{"node2"}, subnodes);
+		repo.removeSubnode(jid, "test");
+		subnodes = repo.getSubnodes(jid, "test");
+		Assert.assertEquals(null, subnodes);
+
+		repo.removeUser(jid);
+		Assert.assertFalse("User removal failed", repo.userExists(jid));
+	}
+
+	@Test
+	public void testExeutionTimes() throws Exception {
+		BareJID jid = BareJID.bareJIDInstance("test-1@example.com");
+
+		repo.addUser(jid);
+
+		int counts = 1000;
+
+		for (int i = 0; i < counts; i++) {
+			repo.setData(jid, "rooms/test-" + i + "@test", "creation-date", "date-" + i);
+			repo.setData(jid, "rooms/test-" + i + "@test", "value", "date-" + i);
+		}
+
+		long start = System.currentTimeMillis();
+
+		for (int i = 0; i < counts; i++) {
+			repo.removeSubnode(jid, "rooms/test-" + i + "@test");
+		}
+
+		long end = System.currentTimeMillis();
+		long time = end - start;
+		System.out.println("executed in " + time + "ms for " + counts + " " + (time / counts) + " per execution");
+
+		long timeLimit = counts * 2;
+
+		Assert.assertTrue("Test should be executed in less than " + timeLimit + "ms", timeLimit > time);
+	}
+
+	@Test
+	public void testSchemaUpgrade_JidComparison() throws Exception {
+		BareJID jid = BareJID.bareJIDInstance(UUID.randomUUID().toString() + "_TEST", "example.com");
+		byte[] uid = repo.calculateHash(jid.toString());
+
+		Document userDoc = new Document("_id", uid).append(MongoRepository.ID_KEY, jid.toString())
+				.append(MongoRepository.DOMAIN_KEY, jid.getDomain());
+		dataSource.getDatabase().getCollection(MongoRepository.USERS_COLLECTION).insertOne(userDoc);
+
+		Document nodeDoc = new Document("uid", uid).append("node", "test-1")
+				.append("key", "test-2")
+				.append("value", "VALUE");
+		dataSource.getDatabase().getCollection(MongoRepository.NODES_COLLECTION).insertOne(nodeDoc);
+
+		assertNull(repo.getData(jid, "test-1", "test-2"));
+
+		repo.updateSchema(Optional.of(Version.ZERO), Version.ZERO);
+
+		assertEquals("VALUE", repo.getData(jid, "test-1", "test-2"));
+
+		repo.removeUser(jid);
+	}
+
+	@Test
+	public void testSetDataListUserAutoCreate() throws Exception {
+		prepareUserAutoCreateRepo();
+
+		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
+		String[] data = new String[]{"test1", "test2", "test3"};
+
+		repo.setDataList(userJID, "test-node", "test-key", data);
+		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
+		Assert.assertArrayEquals(data, repo.getDataList(userJID, "test-node", "test-key"));
+	}
+
+	@Test
+	public void testSetDataUserAutoCreate() throws Exception {
+		prepareUserAutoCreateRepo();
+
+		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
+		String data = "test-data";
+
+		repo.setData(userJID, "test-node", "test-key", data);
+		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
+		Assert.assertEquals(data, repo.getData(userJID, "test-node", "test-key"));
+	}
+
 	@Test
 	public void testUser() throws TigaseStringprepException, TigaseDBException {
 		BareJID jid = BareJID.bareJIDInstance("test-1@example.com");
-		
+
 		repo.addUser(jid);
 		Assert.assertTrue("User creation failed", repo.userExists(jid));
 
@@ -91,185 +252,16 @@ public class MongoRepositoryTest {
 		repo.removeUser(jid);
 		Assert.assertFalse("User removal failed", repo.userExists(jid));
 
-
-		repo.addUser(jid,"password");
+		repo.addUser(jid, "password");
 		Assert.assertTrue("User creation failed", repo.userExists(jid));
 
-		repo.updatePassword(jid,"password");
-		Assert.assertEquals("Changing to the same password failed", "password",repo.getPassword(jid));
-		repo.updatePassword(jid,"diffpass");
-		Assert.assertEquals("Changing to different password failed", "diffpass",repo.getPassword(jid));
+		repo.updatePassword(jid, "password");
+		Assert.assertEquals("Changing to the same password failed", "password", repo.getPassword(jid));
+		repo.updatePassword(jid, "diffpass");
+		Assert.assertEquals("Changing to different password failed", "diffpass", repo.getPassword(jid));
 
 		repo.removeUser(jid);
 		Assert.assertFalse("User removal failed", repo.userExists(jid));
 
-
-	}
-	
-	@Test
-	public void testData() throws TigaseStringprepException, TigaseDBException {
-		BareJID jid = BareJID.bareJIDInstance("test-1@example.com");
-		
-		repo.addUser(jid);
-		Assert.assertTrue("User creation failed", repo.userExists(jid));
-
-		repo.setData(jid, "key1", "test value 1");
-		String[] keys = repo.getKeys(jid);
-		Assert.assertArrayEquals(new String[] { "key1" }, keys);
-
-		repo.setData(jid, "test/node", "key2", "test value 2");
-		keys = repo.getKeys(jid);
-		Assert.assertArrayEquals(new String[] { "key1" }, keys);
-		keys = repo.getKeys(jid, "test/node");
-		Assert.assertArrayEquals(new String[] { "key2" }, keys);
-		repo.setDataList(jid, "test/node2", "list", new String[] { "item1", "item2" });
-		keys = repo.getKeys(jid, "test/node2");
-		Assert.assertArrayEquals(new String[] { "list" }, keys);
-		String[] subnodes = repo.getSubnodes(jid);
-		Assert.assertArrayEquals(new String[] { "test" }, subnodes);
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { "node", "node2" }, subnodes);
-		repo.setDataList(jid, "test/node3/subnode1", "list", new String[] { "item1", "item2" });
-		subnodes = repo.getSubnodes(jid, "test/");
-		Assert.assertArrayEquals(new String[] { "node", "node2", "node3" }, subnodes);
-		
-		// cleaning up
-		repo.removeData(jid, "key1");
-		keys = repo.getKeys(jid);
-		Assert.assertArrayEquals(new String[] { }, keys);
-		repo.removeData(jid, "test/node", "key2");
-		subnodes = repo.getSubnodes(jid);
-		Assert.assertArrayEquals(new String[] { "test" }, subnodes);
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { "node2", "node3" }, subnodes);
-		repo.removeData(jid, "test/node2", "list");
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertEquals(new String[] { "node3" }, subnodes);
-		repo.removeData(jid, "test/node3/subnode1", "list");
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertEquals(null, subnodes);
-		
-		repo.setDataList(jid, "test/node2", "list", new String[] { "item1", "item2" });
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
-		repo.removeSubnode(jid, "test");
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertEquals(null, subnodes);
-
-		// once more
-		repo.setDataList(jid, "test/node2", "list", new String[] { "item1", "item2" });
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
-		repo.removeSubnode(jid, "test/");
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertEquals(null, subnodes);
-
-		// once more
-		repo.setDataList(jid, "test/node2/", "list", new String[] { "item1", "item2" });
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertArrayEquals(new String[] { "node2" }, subnodes);
-		repo.removeSubnode(jid, "test");
-		subnodes = repo.getSubnodes(jid, "test");
-		Assert.assertEquals(null, subnodes);
-
-
-		repo.removeUser(jid);
-		Assert.assertFalse("User removal failed", repo.userExists(jid));
-	}
-	
-	@Test
-	public void testExeutionTimes() throws Exception {	
-		BareJID jid = BareJID.bareJIDInstance("test-1@example.com");
-		
-		repo.addUser(jid);
-		
-		int counts = 1000;
-		
-		for (int i=0; i<counts; i++) {
-			repo.setData(jid, "rooms/test-" + i + "@test", "creation-date", "date-" + i);
-			repo.setData(jid, "rooms/test-" + i + "@test", "value", "date-" + i);
-		}
-		
-		long start = System.currentTimeMillis();
-		
-		for (int i=0; i<counts; i++) {
-			repo.removeSubnode(jid, "rooms/test-" + i + "@test");
-		}
-		
-		long end = System.currentTimeMillis();
-		long time = end - start;
-		System.out.println("executed in " + time + "ms for " + counts + " " + (time/counts) + " per execution");
-		
-		long timeLimit = counts * 2;
-		
-		Assert.assertTrue("Test should be executed in less than " + timeLimit + "ms", timeLimit > time);
-	}
-	
-	private void prepareUserAutoCreateRepo() throws Exception {
-		repo.autoCreateUser = true;
-	}
-	
-	@Test
-	public void testAddDataListUserAutoCreate() throws Exception {
-		prepareUserAutoCreateRepo();
-
-		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
-		String[] data = new String[] {
-			"test1",
-			"test2",
-			"test3"
-		};
-		
-		repo.addDataList(userJID, "test-node", "test-key", data);
-		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
-		Assert.assertArrayEquals(data, repo.getDataList(userJID, "test-node", "test-key"));
-	}
-
-	@Test
-	public void testSetDataListUserAutoCreate() throws Exception {
-		prepareUserAutoCreateRepo();
-
-		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
-		String[] data = new String[] {
-			"test1",
-			"test2",
-			"test3"
-		};
-		
-		repo.setDataList(userJID, "test-node", "test-key", data);
-		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
-		Assert.assertArrayEquals(data, repo.getDataList(userJID, "test-node", "test-key"));		
-	}
-	
-	@Test
-	public void testSetDataUserAutoCreate() throws Exception {
-		prepareUserAutoCreateRepo();
-
-		BareJID userJID = BareJID.bareJIDInstanceNS("test-1@example.com");
-		String data = "test-data";
-		
-		repo.setData(userJID, "test-node", "test-key", data);
-		Assert.assertTrue("User autocreation failed", repo.userExists(userJID));
-		Assert.assertEquals(data, repo.getData(userJID, "test-node", "test-key"));
-	}
-
-	@Test
-	public void testSchemaUpgrade_JidComparison() throws Exception {
-		BareJID jid = BareJID.bareJIDInstance(UUID.randomUUID().toString() + "_TEST", "example.com");
-		byte[] uid = repo.calculateHash(jid.toString());
-
-		Document userDoc = new Document("_id", uid).append(MongoRepository.ID_KEY, jid.toString()).append(MongoRepository.DOMAIN_KEY, jid.getDomain());
-		dataSource.getDatabase().getCollection(MongoRepository.USERS_COLLECTION).insertOne(userDoc);
-
-		Document nodeDoc = new Document("uid", uid).append("node", "test-1").append("key", "test-2").append("value", "VALUE");
-		dataSource.getDatabase().getCollection(MongoRepository.NODES_COLLECTION).insertOne(nodeDoc);
-
-		assertNull(repo.getData(jid, "test-1", "test-2"));
-
-		repo.updateSchema(Optional.of(Version.ZERO), Version.ZERO);
-
-		assertEquals("VALUE", repo.getData(jid, "test-1", "test-2"));
-
-		repo.removeUser(jid);
 	}
 }
