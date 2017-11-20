@@ -340,14 +340,9 @@ public class MongoRepository
 	}
 
 	/**
-	 * Should be removed an only relational DB are using this and it is not required by any other code
+	 * Should be removed as only relational DB are using this and it is not required by any other code
 	 *
-	 * @param user
-	 *
-	 * @return
-	 *
-	 * @throws TigaseDBException
-	 * @deprecated
+	 * {@inheritDoc}
 	 */
 	@Override
 	@Deprecated
