@@ -333,7 +333,7 @@ public class MongoSchemaLoader
 						if (!currentVersion.isPresent() || Result.ok.equals(res)) {
 							setComponentVersion(schemaId, newVersion.toString());
 						}
-						return Result.ok;
+						return res;
 					} else {
 						return Result.skipped;
 					}
