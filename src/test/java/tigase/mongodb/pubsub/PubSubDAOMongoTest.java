@@ -51,7 +51,7 @@ import static org.junit.Assert.*;
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class PubSubDAOMongoTest
-		extends AbstractPubSubDAOTest {
+		extends AbstractPubSubDAOTest<MongoDataSource> {
 
 	private byte[] generateId(String in) throws RepositoryException {
 		try {
@@ -63,7 +63,7 @@ public class PubSubDAOMongoTest
 	}
 
 	protected MongoDatabase getDatabase() {
-		return ((MongoDataSource) dataSource).getDatabase();
+		return getDataSource().getDatabase();
 	}
 
 	@Override

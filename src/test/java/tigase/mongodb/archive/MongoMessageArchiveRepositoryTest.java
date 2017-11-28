@@ -49,7 +49,7 @@ import java.util.Optional;
 // Do not remove - it imports tests from Tigase Message Archiving project
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class MongoMessageArchiveRepositoryTest
-		extends tigase.archive.db.AbstractMessageArchiveRepositoryTest {
+		extends tigase.archive.db.AbstractMessageArchiveRepositoryTest<MongoDataSource,MessageArchiveRepository<QueryCriteria,MongoDataSource>> {
 
 	private byte[] generateId(String in) throws RepositoryException {
 		try {
