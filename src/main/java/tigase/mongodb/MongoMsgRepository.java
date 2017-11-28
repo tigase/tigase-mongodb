@@ -162,13 +162,10 @@ public class MongoMsgRepository
 			}
 		}
 
-		MsgDBItem<ObjectId> item = null;
+		MsgDBItem<ObjectId> item = expiredQueue.poll();
 
-		while (item == null) {
-			try {
-				item = expiredQueue.take();
-			} catch (InterruptedException ex) {
-			}
+		if (item == null) {
+			return null;
 		}
 
 		if (delete) {
@@ -283,7 +280,7 @@ public class MongoMsgRepository
 			DomBuilderHandler domHandler = new DomBuilderHandler();
 
 			for (Document it : cursor) {
-				if (expiredQueue.size() < MAX_QUEUE_SIZE) {
+				if (expiredQueue.size() >= MAX_QUEUE_SIZE) {
 					break;
 				}
 

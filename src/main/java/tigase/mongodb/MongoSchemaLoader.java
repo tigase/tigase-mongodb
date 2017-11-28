@@ -26,19 +26,16 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
-import tigase.db.*;
+import tigase.db.DBInitException;
 import tigase.db.util.DBSchemaLoader;
 import tigase.db.util.RepositoryVersionAware;
 import tigase.db.util.SchemaLoader;
 import tigase.db.util.SchemaManager;
 import tigase.util.Version;
 import tigase.util.log.LogFormatter;
-import tigase.util.reflection.ClassUtilBean;
-import tigase.util.reflection.ReflectionHelper;
 import tigase.util.ui.console.CommandlineParameter;
 import tigase.xmpp.jid.BareJID;
 
-import java.lang.reflect.Type;
 import java.util.*;
 import java.util.function.Function;
 import java.util.logging.ConsoleHandler;
@@ -46,7 +43,6 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static tigase.mongodb.Helper.collectionExists;
 
@@ -63,7 +59,7 @@ public class MongoSchemaLoader
 	private Parameters params;
 
 	@Override
-	public Result addXmppAdminAccount() {
+	public Result addXmppAdminAccount(SchemaManager.SchemaInfo schemaInfo) {
 		if (dataSource == null) {
 			log.log(Level.WARNING, "Connection not validated");
 			return Result.error;
@@ -81,30 +77,7 @@ public class MongoSchemaLoader
 			return Result.warning;
 		}
 
-		getDataSourceAwareInstancesStream(Schema.SERVER_SCHEMA_ID).map(repo -> {
-			if (repo == null) {
-				return Result.error;
-			} else {
-				try {
-					repo.setDataSource(dataSource);
-					if (repo instanceof AuthRepository) {
-						jids.forEach(jid -> {
-							try {
-								((AuthRepository) repo).addUser(jid, pwd);
-							} catch (TigaseDBException ex) {
-								log.log(Level.WARNING, ex.getMessage());
-							}
-						});
-					}
-					return Result.ok;
-				} catch (Exception ex) {
-					log.log(Level.WARNING, ex.getMessage());
-					return Result.error;
-				}
-			}
-		}).collect(Collectors.toSet());
-
-		return Result.ok;
+		return addUsersToRepository(schemaInfo, dataSource, MongoDataSource.class, jids, pwd, log);
 	}
 
 	@Override
@@ -208,30 +181,6 @@ public class MongoSchemaLoader
 		return sb.toString();
 	}
 
-	@SuppressWarnings("unchecked")
-	private Stream<DataSourceAware<MongoDataSource>> getDataSourceAwareInstancesStream(String schemaID) {
-		return ClassUtilBean.getInstance()
-				.getAllClasses()
-				.stream()
-				.filter(clazz -> clazz.isAnnotationPresent(Repository.SchemaId.class))
-				.filter(clazz -> schemaID.equals(clazz.getAnnotation(Repository.SchemaId.class).id()))
-				.filter(DataSourceAware.class::isAssignableFrom)
-				.filter(clazz -> ReflectionHelper.classMatchesClassWithParameters(clazz, DataSourceAware.class,
-				                                                                  new Type[]{MongoDataSource.class}))
-				.map(this::getMongoDataSourceDataSourceAware)
-				.filter(Objects::nonNull);
-	}
-
-	@SuppressWarnings("unchecked")
-	private DataSourceAware<MongoDataSource> getMongoDataSourceDataSourceAware(Class<?> clazz) {
-		try {
-			return (DataSourceAware<MongoDataSource>) clazz.newInstance();
-		} catch (Exception ex) {
-			log.log(Level.WARNING, "Failed to create instance of " + clazz.getCanonicalName());
-			return null;
-		}
-	}
-
 	public List<CommandlineParameter> getSetupOptions() {
 		List<CommandlineParameter> options = new ArrayList<>();
 		options.add(new CommandlineParameter.Builder("D",
@@ -306,8 +255,8 @@ public class MongoSchemaLoader
 	}
 
 	@Override
-	public Result loadSchema(String schemaId, String version) {
-		if (SchemaManager.COMMON_SCHEMA_ID.equals(schemaId)) {
+	public Result loadSchema(SchemaManager.SchemaInfo schema, String version) {
+		if (SchemaManager.COMMON_SCHEMA_ID.equals(schema.getId())) {
 			return Result.ok;
 		}
 		if (dataSource == null) {
@@ -315,35 +264,37 @@ public class MongoSchemaLoader
 			return Result.error;
 		}
 
-		Optional<Version> currentVersion = getComponentVersionFromDb(schemaId);
+		Optional<Version> currentVersion = getComponentVersionFromDb(schema.getId());
 
-		log.log(Level.INFO, "Loading schema " + schemaId + ", version: " + version);
+		log.log(Level.INFO, "Loading schema " + schema.getId() + ", version: " + version);
 
-		Set<Result> results = getDataSourceAwareInstancesStream(schemaId).map(repo -> {
-			if (repo == null) {
-				return Result.error;
-			} else {
-				try {
-					repo.setDataSource(dataSource);
-					if (repo instanceof RepositoryVersionAware) {
-
-						final RepositoryVersionAware versionAwareRepo = (RepositoryVersionAware) repo;
-						final Version newVersion = Version.of(version);
-						Result res = versionAwareRepo.updateSchema(currentVersion, newVersion);
-						if (!currentVersion.isPresent() || Result.ok.equals(res)) {
-							setComponentVersion(schemaId, newVersion.toString());
-						}
-						return res;
+		Set<Result> results = getInitializedDataSourceAwareForSchemaInfo(schema, MongoDataSource.class, dataSource, log)
+				.map(repo -> {
+					if (repo == null) {
+						return Result.error;
 					} else {
-						return Result.skipped;
+						try {
+							repo.setDataSource(dataSource);
+							if (repo instanceof RepositoryVersionAware) {
+
+								final RepositoryVersionAware versionAwareRepo = (RepositoryVersionAware) repo;
+								final Version newVersion = Version.of(version);
+								Result res = versionAwareRepo.updateSchema(currentVersion, newVersion);
+								if (!currentVersion.isPresent() || Result.ok.equals(res)) {
+									setComponentVersion(schema.getId(), newVersion.toString());
+								}
+								return res;
+							} else {
+								return Result.skipped;
+							}
+						} catch (Exception ex) {
+							ex.printStackTrace();
+							log.log(Level.WARNING, ex.getMessage());
+							return Result.error;
+						}
 					}
-				} catch (Exception ex) {
-					ex.printStackTrace();
-					log.log(Level.WARNING, ex.getMessage());
-					return Result.error;
-				}
-			}
-		}).collect(Collectors.toSet());
+				})
+				.collect(Collectors.toSet());
 
 		return results.contains(Result.error)
 		       ? Result.error
@@ -460,16 +411,17 @@ public class MongoSchemaLoader
 				log.log(Level.INFO, "OK");
 			}
 
-			boolean createUser = client.getDatabase("admin")
-					.getCollection("system.users")
-					.find(Filters.and(Filters.eq("user", params.getDbUser()), Filters.eq("db", params.getDbName())))
-					.first() == null;
-			if (createUser) {
-				Document result = db.runCommand(new Document().append("createUser", params.getDbUser())
-						                                .append("pwd", params.getDbPass())
-						                                .append("roles", Collections.singletonList(
-								                                new Document("role", "dbOwner").append("db",
-								                                                                       params.getDbName()))));
+			if (params.getDbUser() != null && params.getDbPass() != null) {
+				boolean createUser = client.getDatabase("admin")
+						.getCollection("system.users")
+						.find(Filters.and(Filters.eq("user", params.getDbUser()), Filters.eq("db", params.getDbName())))
+						.first() == null;
+				if (createUser) {
+					Document result = db.runCommand(new Document().append("createUser", params.getDbUser())
+															.append("pwd", params.getDbPass())
+															.append("roles", Collections.singletonList(
+																	new Document("role", "dbOwner").append("db", params.getDbName()))));
+				}
 			}
 
 			client.close();
@@ -502,12 +454,24 @@ public class MongoSchemaLoader
 		private boolean useSSL = false;
 
 		private static String getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param) {
+			return props.getProperty(param.getName(), null);
+		}
+
+		private static String getPropertyWithDefault(Properties props, DBSchemaLoader.PARAMETERS_ENUM param) {
 			return props.getProperty(param.getName(), param.getDefaultValue());
 		}
 
 		private static <T> T getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param,
 		                                 Function<String, T> converter) {
 			String tmp = getProperty(props, param);
+			if (tmp == null) {
+				return null;
+			}
+			return converter.apply(tmp);
+		}
+
+		private static <T> T getPropertyWithDefault(Properties props, DBSchemaLoader.PARAMETERS_ENUM param, Function<String, T> converter) {
+			String tmp = getPropertyWithDefault(props, param);
 			if (tmp == null) {
 				return null;
 			}
@@ -624,7 +588,7 @@ public class MongoSchemaLoader
 
 		@Override
 		public void setProperties(Properties props) {
-			logLevel = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL, val -> Level.parse(val));
+			logLevel = getPropertyWithDefault(props, DBSchemaLoader.PARAMETERS_ENUM.LOG_LEVEL, val -> Level.parse(val));
 			admins = getProperty(props, DBSchemaLoader.PARAMETERS_ENUM.ADMIN_JID, tmp -> Arrays.stream(tmp.split(","))
 					.map(str -> BareJID.bareJIDInstanceNS(str))
 					.collect(Collectors.toList()));
