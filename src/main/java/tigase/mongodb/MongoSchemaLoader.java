@@ -43,6 +43,7 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static tigase.mongodb.Helper.collectionExists;
 
@@ -54,6 +55,10 @@ public class MongoSchemaLoader
 
 	protected static final String SCHEMA_VERSION = "tig_schema_versions";
 	private static final Logger log = Logger.getLogger(MongoSchemaLoader.class.getCanonicalName());
+	private static final List<TypeInfo> supportedTypes = Stream.of(
+			new TypeInfo("mongodb", "MongoDB", "com.mongodb.MongoClient")
+	).collect(Collectors.toList());
+
 	private MongoClient client;
 	private MongoDataSource dataSource;
 	private Parameters params;
@@ -225,8 +230,8 @@ public class MongoSchemaLoader
 	}
 
 	@Override
-	public List<String> getSupportedTypes() {
-		return Arrays.asList("mongodb");
+	public List<TypeInfo> getSupportedTypes() {
+		return supportedTypes;
 	}
 
 	@Override
