@@ -66,7 +66,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta(supportedUris = {"mongodb:.*"})
-@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID + "-history", name = "Tigase MUC Component (History)")
+@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID + "-history", name = "Tigase MUC Component (History)", external = false)
 @RepositoryVersionAware.SchemaVersion
 public class MongoHistoryProvider
 		extends AbstractHistoryProvider<MongoDataSource>

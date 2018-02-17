@@ -57,7 +57,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta(supportedUris = {"mongodb:.*"}, isDefault = true)
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-user", name = "Tigase XMPP Server (User)")
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-user", name = "Tigase XMPP Server (User)", external = false)
 @RepositoryVersionAware.SchemaVersion
 public class MongoRepository
 		extends AbstractAuthRepositoryWithCredentials

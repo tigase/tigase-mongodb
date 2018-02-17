@@ -285,7 +285,11 @@ public class MongoSchemaLoader
 								final RepositoryVersionAware versionAwareRepo = (RepositoryVersionAware) repo;
 								final Version newVersion = Version.of(version);
 								Result res = versionAwareRepo.updateSchema(currentVersion, newVersion);
-								if (!currentVersion.isPresent() || Result.ok.equals(res)) {
+								// particular repository is version aware therefore we store version:
+								// * if no version was yet stored and the update was skipped (because no logic
+								//   was yet defined to perform any update
+								// * version was set and the update was correctly performed
+								if (!currentVersion.isPresent() && Result.skipped.equals(res) || Result.ok.equals(res)) {
 									setComponentVersion(schema.getId(), newVersion.toString());
 								}
 								return res;
@@ -457,6 +461,7 @@ public class MongoSchemaLoader
 		private String dbUser = null;
 		private Level logLevel = Level.CONFIG;
 		private boolean useSSL = false;
+		private boolean forceReloadSchema = false;
 
 		private static String getProperty(Properties props, DBSchemaLoader.PARAMETERS_ENUM param) {
 			return props.getProperty(param.getName(), null);
@@ -529,6 +534,16 @@ public class MongoSchemaLoader
 		@Override
 		public void setLogLevel(Level level) {
 			this.logLevel = level;
+		}
+
+		@Override
+		public boolean isForceReloadSchema() {
+			return forceReloadSchema;
+		}
+
+		@Override
+		public void setForceReloadSchema(boolean forceReloadSchema) {
+			this.forceReloadSchema = forceReloadSchema;
 		}
 
 		protected void init(Optional<SchemaManager.RootCredentialsCache> rootCredentialsCache) {

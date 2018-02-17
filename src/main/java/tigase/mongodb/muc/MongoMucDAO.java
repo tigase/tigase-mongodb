@@ -60,7 +60,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * Created by andrzej on 20.10.2016.
  */
 @Repository.Meta(supportedUris = {"mongodb:.*"})
-@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME)
+@Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME, external = false)
 public class MongoMucDAO
 		extends AbstractMucDAO<MongoDataSource, byte[]> {
 

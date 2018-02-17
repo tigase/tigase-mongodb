@@ -62,7 +62,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta(supportedUris = {"mongodb:.*"})
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-offline-message", name = "Tigase XMPP Server (Offline Messages)")
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-offline-message", name = "Tigase XMPP Server (Offline Messages)", external = false)
 @RepositoryVersionAware.SchemaVersion
 public class MongoMsgRepository
 		extends MsgRepository<ObjectId, MongoDataSource>

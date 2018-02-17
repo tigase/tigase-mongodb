@@ -66,7 +66,7 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
  * @author andrzej
  */
 @Repository.Meta(supportedUris = {"mongodb:.*"})
-@Repository.SchemaId(id = Schema.PUBSUB_SCHEMA_ID, name = Schema.PUBSUB_SCHEMA_NAME)
+@Repository.SchemaId(id = Schema.PUBSUB_SCHEMA_ID, name = Schema.PUBSUB_SCHEMA_NAME, external = false)
 @RepositoryVersionAware.SchemaVersion
 public class PubSubDAOMongo
 		extends PubSubDAO<ObjectId, MongoDataSource, tigase.pubsub.modules.mam.Query>

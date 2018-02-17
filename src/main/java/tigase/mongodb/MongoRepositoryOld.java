@@ -60,7 +60,7 @@ import static tigase.mongodb.Helper.collectionExists;
  * @author andrzej
  */
 @Repository.Meta(supportedUris = {"mongodb:.*"})
-@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME)
+@Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID, name = Schema.SERVER_SCHEMA_NAME, external = false)
 @RepositoryVersionAware.SchemaVersion
 @Deprecated
 @TigaseDeprecated(since = "8.0.0")
