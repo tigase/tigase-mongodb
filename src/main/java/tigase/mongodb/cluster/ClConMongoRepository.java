@@ -118,6 +118,9 @@ public class ClConMongoRepository
 		} catch (Exception ex) {
 			log.log(Level.WARNING, "Problem getting elements from DB: ", ex);
 		}
+		if (auto_remove_obsolete_items) {
+			removeObsoloteItems(5000);
+		}
 	}
 
 	@Override
