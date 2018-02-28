@@ -535,12 +535,12 @@ public class MongoMsgRepository
 	public SchemaLoader.Result updateSchema(Optional<Version> oldVersion, Version newVersion) throws TigaseDBException {
 		for (Document doc : msgHistoryCollection.find()
 				.batchSize(1000)
-				.projection(fields(include("_id", "from", "to")))) {
+				.projection(fields(include("_id", "from", "from_hash", "to", "to_hash")))) {
 			String from = (String) doc.get("from");
 			String to = (String) doc.get("to");
 
-			byte[] oldToHash = ((Binary) doc.get("to_hash")).getData();
-			byte[] oldFromHash = ((Binary) doc.get("from_hash")).getData();
+			byte[] oldToHash = Optional.ofNullable((Binary) doc.get("to_hash")).map(Binary::getData).orElse(new byte[0]);
+			byte[] oldFromHash = Optional.ofNullable((Binary) doc.get("from_hash")).map(Binary::getData).orElse(new byte[0]);
 
 			byte[] newToHash = calculateHash(to.toLowerCase());
 			byte[] newFromHash = calculateHash(from.toLowerCase());
