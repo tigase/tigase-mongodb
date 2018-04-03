@@ -144,6 +144,11 @@ public class MongoSchemaLoader
 	}
 
 	@Override
+	public Optional<Version> getMinimalRequiredComponentVersionForUpgrade(SchemaManager.SchemaInfo schemaInfo) {
+		return Optional.of(Version.ZERO);
+	}
+
+	@Override
 	public String getDBUri() {
 		return getDBUri(false);
 	}
