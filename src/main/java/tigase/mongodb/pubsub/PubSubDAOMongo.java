@@ -385,6 +385,19 @@ public class PubSubDAOMongo
 	}
 
 	@Override
+	public long getNodesCount(BareJID serviceJid) throws RepositoryException {
+		try {
+			if (serviceJid == null) {
+				return nodesCollection.count();
+			} else {
+				return nodesCollection.count(createCrit(serviceJid, null));
+			}
+		} catch (MongoException ex) {
+			throw new RepositoryException("Could not count nodes", ex);
+		}
+	}
+
+	@Override
 	public String[] getNodesList(BareJID serviceJid, String nodeName) throws RepositoryException {
 		ObjectId collectionId = nodeName == null ? null : getNodeId(serviceJid, nodeName);
 		if (collectionId == null && nodeName != null) {
