@@ -44,6 +44,7 @@ import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -336,6 +337,22 @@ public class MongoRepository
 			return res.isEmpty() ? null : res.toArray(new String[res.size()]);
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Error getting subnode from repository: ", ex);
+		}
+	}
+
+	@Override
+	public Collection<String> getUsernames(BareJID user) throws TigaseDBException {
+		try {
+			byte[] uid = generateId(user);
+			Bson projecton = Projections.include("username");
+			List<String> usernames = new ArrayList<>();
+			userCredentialsCollection.find(Filters.eq("uid", uid))
+					.projection(projecton)
+					.map(doc -> doc.getString("username"))
+					.forEach((Consumer<? super String>) usernames::add);
+			return usernames;
+		} catch (MongoException ex) {
+			throw new TigaseDBException("Error getting list of usernames for user " + user + ": ", ex);
 		}
 	}
 
