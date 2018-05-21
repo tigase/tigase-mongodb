@@ -28,6 +28,7 @@ import tigase.db.DBInitException;
 import tigase.db.DataSource;
 import tigase.db.Repository;
 import tigase.kernel.beans.UnregisterAware;
+import tigase.kernel.beans.config.ConfigField;
 import tigase.util.Version;
 
 import java.util.Map;
@@ -46,9 +47,17 @@ public class MongoDataSource
 
 	private static final Logger log = Logger.getLogger(MongoDataSource.class.getName());
 
+	@ConfigField(desc = "Automatic schema management", alias = "schema-management")
+	private boolean automaticSchemaManagement = true;
+
 	private MongoDatabase db;
 	private MongoClient mongo;
 	private String resourceUri;
+
+	@Override
+	public boolean automaticSchemaManagement() {
+		return automaticSchemaManagement;
+	}
 
 	@Override
 	public void beforeUnregister() {
