@@ -23,6 +23,7 @@ import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -452,19 +453,23 @@ public class MongoMessageArchiveRepository
 	public void removeItems(BareJID owner, String with, Date start, Date end) throws TigaseDBException {
 		try {
 			byte[] oid = generateId(owner);
-			byte[] wid = calculateHash(with.toLowerCase());
 
-			if (start == null) {
-				start = new Date(0);
+			List<Bson> crit = new ArrayList<>();
+			crit.add(Filters.eq("owner_id", oid));
+
+			if (with != null) {
+				byte[] wid = calculateHash(with.toLowerCase());
+				crit.add(Filters.eq("buddy_id", wid));
 			}
-			if (end == null) {
-				end = new Date(0);
+
+			if (start != null) {
+				crit.add(Filters.gte("ts", start));
+			}
+			if (end != null) {
+				crit.add(Filters.lte("ts", end));
 			}
 
-			Document dateCrit = new Document("$gte", start).append("$lte", end);
-			Document crit = new Document("owner_id", oid).append("buddy_id", wid).append("ts", dateCrit);
-
-			msgsCollection.deleteMany(crit);
+			msgsCollection.deleteMany(Filters.and(crit));
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not remove items", ex);
 		}
