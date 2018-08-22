@@ -39,7 +39,7 @@ import tigase.kernel.beans.config.ConfigField;
 import tigase.server.Packet;
 import tigase.server.amp.db.MsgRepository;
 import tigase.util.Version;
-import tigase.util.datetime.DateTimeFormatter;
+import tigase.util.datetime.TimestampHelper;
 import tigase.xml.DomBuilderHandler;
 import tigase.xml.Element;
 import tigase.xmpp.XMPPResourceConnection;
@@ -76,7 +76,7 @@ public class MongoMsgRepository
 
 	private static final String MSG_HISTORY_COLLECTION = "tig_offline_messages";
 
-	private static final DateTimeFormatter dt = new DateTimeFormatter();
+	private static final TimestampHelper dt = new TimestampHelper();
 
 	//private static final Comparator<Document> MSG_COMPARATOR = (o1, o2) -> ((Date) o1.get("ts")).compareTo((Date) o2.get("ts"));
 
@@ -422,7 +422,7 @@ public class MongoMsgRepository
 
 				String msgId = null;
 				if (it.containsKey("ts")) {
-					msgId = dt.formatDateTime((Date) it.get("ts"));
+					msgId = dt.format((Date) it.get("ts"));
 				}
 
 				if (msg != null) {
