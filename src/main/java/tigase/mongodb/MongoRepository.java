@@ -184,7 +184,7 @@ public class MongoRepository
 	@Override
 	public AccountStatus getAccountStatus(BareJID user) throws TigaseDBException {
 		String value = getData(user, ACCOUNT_STATUS_KEY);
-		return value == null ? null : AccountStatus.valueOf(value);
+		return value == null ? AccountStatus.active : AccountStatus.valueOf(value);
 	}
 
 	@Override
