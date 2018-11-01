@@ -57,7 +57,7 @@ public class MongoDualIPRepository
 		try {
 			for (Document dto : clusterNodes.find().batchSize(100)) {
 
-				String user_jid = (String) dto.get(HOSTNAME_ID);
+				String user_jid = (String) dto.get("_id");
 				String node_jid = (String) dto.get(SECONDARY_HOSTNAME_ID);
 				try {
 					BareJID hostname_hid = BareJID.bareJIDInstance(user_jid);
