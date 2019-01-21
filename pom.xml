@@ -12,7 +12,10 @@
 	<properties>
 		<bundle-activator>tigase.mongodb.Activator</bundle-activator>
 		<bundle-export-package>tigase.mongodb</bundle-export-package>
+		<license.inlineHeader>${inlineHeader_agpl3}</license.inlineHeader>
 	</properties>
+
+	<inceptionYear>2012</inceptionYear>
 
 	<artifactId>tigase-mongodb</artifactId>
 	<version>1.1.1-SNAPSHOT</version>
