@@ -43,8 +43,8 @@
     </licenses>
 
     <scm>
-        <connection>scm:git:https://repository.tigase.org/git/tigase-mongodb.git</connection>
-        <developerConnection>scm:git:https://repository.tigase.org/git/tigase-mongodb.git</developerConnection>
+        <connection>scm:git:${scm_repo_base}/tigase-mongodb.git</connection>
+        <developerConnection>scm:git:${scm_repo_base}/tigase-mongodb.git</developerConnection>
         <url>https://projects.tigase.org/projects/tigase-mongodb/repository</url>
         <tag>HEAD</tag>
     </scm>
@@ -127,4 +127,11 @@
             <scope>provided</scope>
         </dependency>
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>tigase</id>
+            <url>http://maven-repo.tigase.org/repository/tigase</url>
+        </repository>
+    </repositories>
 </project>
