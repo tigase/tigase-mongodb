@@ -23,8 +23,8 @@ import org.junit.Test;
 import tigase.component.PacketWriter;
 import tigase.component.responses.AsyncCallback;
 import tigase.mongodb.MongoDataSource;
-import tigase.muc.Affiliation;
 import tigase.muc.Room;
+import tigase.muc.RoomAffiliation;
 import tigase.muc.RoomConfig;
 import tigase.muc.history.AbstractHistoryProviderTest;
 import tigase.server.Packet;
@@ -59,7 +59,7 @@ public class MongoHistoryProviderTest
 		rc.setValue(RoomConfig.MUC_ROOMCONFIG_PERSISTENTROOM_KEY, Boolean.TRUE);
 		creationDate = new Date();
 		Room room = roomFactory.newInstance(null, rc, creationDate, creatorJID.getBareJID());
-		room.addAffiliationByJid(creatorJID.getBareJID(), Affiliation.owner);
+		room.addAffiliationByJid(creatorJID.getBareJID(), RoomAffiliation.owner);
 
 		String body = "Test JID Comparison";
 

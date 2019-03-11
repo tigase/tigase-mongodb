@@ -30,10 +30,7 @@ import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.kernel.beans.Inject;
 import tigase.mongodb.MongoDataSource;
-import tigase.muc.Affiliation;
-import tigase.muc.Room;
-import tigase.muc.RoomConfig;
-import tigase.muc.RoomWithId;
+import tigase.muc.*;
 import tigase.muc.repository.AbstractMucDAO;
 import tigase.muc.repository.Schema;
 import tigase.util.stringprep.TigaseStringprepException;
@@ -100,7 +97,7 @@ public class MongoMucDAO
 			room.setId(roomId);
 
 			for (BareJID affJid : room.getAffiliations()) {
-				final Affiliation a = room.getAffiliation(affJid);
+				final RoomAffiliation a = room.getAffiliation(affJid);
 				setAffiliation(room, affJid, a);
 			}
 			return roomId;
@@ -126,8 +123,8 @@ public class MongoMucDAO
 	}
 
 	@Override
-	public Map<BareJID, Affiliation> getAffiliations(RoomWithId<byte[]> room) throws RepositoryException {
-		Map<BareJID, Affiliation> affiliations = new HashMap<>();
+	public Map<BareJID, RoomAffiliation> getAffiliations(RoomWithId<byte[]> room) throws RepositoryException {
+		Map<BareJID, RoomAffiliation> affiliations = new HashMap<>();
 
 		try {
 			byte[] roomId = room.getId();
@@ -136,7 +133,7 @@ public class MongoMucDAO
 					.forEach((Block<? super Document>) (Document doc) -> {
 						try {
 							BareJID jid = BareJID.bareJIDInstance(doc.getString("jid"));
-							Affiliation affiliation = Affiliation.valueOf(doc.getString("affiliation"));
+							RoomAffiliation affiliation = RoomAffiliation.valueof(doc.getString("affiliation"));
 							affiliations.put(jid, affiliation);
 						} catch (TigaseStringprepException ex) {
 							throw new RuntimeException(ex);
@@ -199,16 +196,16 @@ public class MongoMucDAO
 	}
 
 	@Override
-	public void setAffiliation(RoomWithId<byte[]> room, BareJID jid, Affiliation affiliation)
+	public void setAffiliation(RoomWithId<byte[]> room, BareJID jid, RoomAffiliation affiliation)
 			throws RepositoryException {
 		try {
 			byte[] jidId = generateId(jid);
 			Bson crit = and(eq("room_id", room.getId()), eq("jid_id", jidId));
-			if (affiliation == Affiliation.none) {
+			if (affiliation == RoomAffiliation.none) {
 				roomAffilaitionsCollection.deleteOne(crit);
 			} else {
 				Bson update = Updates.combine(Updates.setOnInsert("jid", jid.toString()),
-				                              Updates.set("affiliation", affiliation.name()));
+				                              Updates.set("affiliation", affiliation.toString()));
 				roomAffilaitionsCollection.updateOne(crit, update, new UpdateOptions().upsert(true));
 			}
 		} catch (Exception ex) {
