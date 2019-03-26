@@ -129,12 +129,14 @@ public class MongoMucDAO
 		try {
 			byte[] roomId = room.getId();
 			roomAffilaitionsCollection.find(eq("room_id", roomId))
-					.projection(include("jid", "affiliation"))
+					.projection(include("jid", "affiliation", "persistent", "nickname"))
 					.forEach((Block<? super Document>) (Document doc) -> {
 						try {
 							BareJID jid = BareJID.bareJIDInstance(doc.getString("jid"));
-							RoomAffiliation affiliation = RoomAffiliation.valueof(doc.getString("affiliation"));
-							affiliations.put(jid, affiliation);
+							Affiliation affiliation = Affiliation.valueOf(doc.getString("affiliation"));
+							boolean persistent = doc.getBoolean("persistent", false);
+							String nickname = doc.getString("nickname");
+							affiliations.put(jid, RoomAffiliation.from(affiliation, persistent, nickname));
 						} catch (TigaseStringprepException ex) {
 							throw new RuntimeException(ex);
 						}
@@ -205,13 +207,17 @@ public class MongoMucDAO
 				roomAffilaitionsCollection.deleteOne(crit);
 			} else {
 				Bson update = Updates.combine(Updates.setOnInsert("jid", jid.toString()),
-				                              Updates.set("affiliation", affiliation.toString()));
+				                              Updates.combine(
+				                              		Updates.set("affiliation", affiliation.getAffiliation().name()),
+													Updates.set("persistent", affiliation.isPersistentOccupant()),
+													Updates.set("nickname", affiliation.getRegisteredNickname())
+													));
 				roomAffilaitionsCollection.updateOne(crit, update, new UpdateOptions().upsert(true));
 			}
 		} catch (Exception ex) {
 			throw new RepositoryException(
 					"Error while setting affiliation for room " + room.getRoomJID() + " for jid " + jid + " to " +
-							affiliation.name(), ex);
+							affiliation.toString(), ex);
 		}
 	}
 
