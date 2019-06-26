@@ -102,6 +102,10 @@ public class MongoSchemaLoader
 			client.dropDatabase(params.getDbName());
 			return Result.ok;
 		} catch (MongoException ex) {
+			if (ex.getCode() == 11) {
+				// User does not exist, so we may have clean MongoDB installation..
+				return Result.ok;
+			}
 			log.log(Level.WARNING, ex.getMessage());
 			return Result.error;
 		}
