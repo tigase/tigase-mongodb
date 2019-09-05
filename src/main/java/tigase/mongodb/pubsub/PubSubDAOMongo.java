@@ -21,10 +21,7 @@ import com.mongodb.MongoException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.IndexOptions;
-import com.mongodb.client.model.Projections;
-import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.*;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
@@ -259,11 +256,12 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public String[] getItemsIds(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
+	public String[] getItemsIds(BareJID serviceJid, ObjectId nodeId, CollectionItemsOrdering order) throws RepositoryException {
 		try {
-			Document crit = new Document("node_id", nodeId);
-//			List<String> ids = (List<String>) db.getCollection(PUBSUB_ITEMS).distinct("item_id", crit);
-			List<String> ids = readAllValuesForField(itemsCollecton, "item_id", crit);
+			Bson filter = Filters.eq("node_id", nodeId);
+			Bson sort = Sorts.ascending(order == CollectionItemsOrdering.byCreationDate ? "creation_date" : "update_date");
+
+			List<String> ids = readAllValuesForField(itemsCollecton, "item_id", filter, sort);
 			return ids.toArray(new String[ids.size()]);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Error while retrieving item ids from repository", ex);
@@ -271,11 +269,12 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public String[] getItemsIdsSince(BareJID serviceJid, ObjectId nodeId, Date since) throws RepositoryException {
+	public String[] getItemsIdsSince(BareJID serviceJid, ObjectId nodeId, CollectionItemsOrdering order, Date since) throws RepositoryException {
 		try {
-			Document crit = new Document("node_id", nodeId).append("$gte", new Document("creation_date", since));
-//			List<String> ids = (List<String>) db.getCollection(PUBSUB_ITEMS).distinct("item_id", crit);
-			List<String> ids = readAllValuesForField(itemsCollecton, "item_id", crit);
+			String orderField = order == CollectionItemsOrdering.byCreationDate ? "creation_date" : "update_date";
+			Bson filter = Filters.and(Filters.eq("node_id", nodeId), Filters.gte(orderField, since));
+			Bson sort = Sorts.ascending(orderField);
+			List<String> ids = readAllValuesForField(itemsCollecton, "item_id", filter, sort);
 			return ids.toArray(new String[ids.size()]);
 		} catch (MongoException ex) {
 			throw new RepositoryException("Error while retrieving item ids since timestamp from repository", ex);
@@ -523,9 +522,22 @@ public class PubSubDAOMongo
 		}
 	}
 
-	protected <T> List<T> readAllValuesForField(MongoCollection<Document> collection, String field, Document crit)
+	protected <T> List<T> readAllValuesForField(MongoCollection<Document> collection, String field, Bson filter)
 			throws MongoException {
-		FindIterable<Document> cursor = collection.find(crit).projection(new Document(field, 1)).batchSize(batchSize);
+		FindIterable<Document> cursor = collection.find(filter).projection(new Document(field, 1)).batchSize(batchSize);
+
+		List<T> result = new ArrayList<>();
+		for (Document item : cursor) {
+			T val = (T) item.get(field);
+			result.add(val);
+		}
+
+		return result;
+	}
+
+	protected <T> List<T> readAllValuesForField(MongoCollection<Document> collection, String field, Bson filter, Bson sort)
+			throws MongoException {
+		FindIterable<Document> cursor = collection.find(filter).sort(sort).projection(new Document(field, 1)).batchSize(batchSize);
 
 		List<T> result = new ArrayList<>();
 		for (Document item : cursor) {
