@@ -153,6 +153,9 @@ public class MongoHistoryProvider
 						(recipientAffiliation == Affiliation.owner || recipientAffiliation == Affiliation.admin);
 
 		try {
+			if (maxchars != null && maxchars == 0) {
+				return;
+			}
 			byte[] rid = generateId(room.getRoomJID());
 			int maxMessages = room.getConfig().getMaxHistory();
 			int limit = maxstanzas != null ? Math.min(maxMessages, maxstanzas) : maxMessages;
