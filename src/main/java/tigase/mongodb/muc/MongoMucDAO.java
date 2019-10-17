@@ -21,6 +21,7 @@ import com.mongodb.Block;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import org.bson.Document;
@@ -238,6 +239,27 @@ public class MongoMucDAO
 		roomAffilaitionsCollection.createIndex(new Document("room_id", 1));
 		roomAffilaitionsCollection.createIndex(new Document("room_id", 1).append("jid_id", 1),
 		                                       new IndexOptions().unique(true));
+	}
+
+	@Override
+	public String getRoomAvatar(RoomWithId<byte[]> room) throws RepositoryException {
+		Document result = roomsCollection.find(eq("_id", room.getId())).projection(Projections.include("avatar")).limit(1).first();
+		if (result == null) {
+			return null;
+		}
+		return result.getString("avatar");
+	}
+
+	@Override
+	public void updateRoomAvatar(RoomWithId<byte[]> room, String encodedAvatar, String hash) throws RepositoryException {
+		try {
+			Bson crit = eq("_id", room.getId());
+			Bson update = new Document("avatar", encodedAvatar).append("avatar_hash", hash);
+			roomsCollection.updateOne(crit, new Document("$set", update));
+		} catch (Exception ex) {
+			throw new RepositoryException(
+					"Error while updating avatar for room " + room.getRoomJID(), ex);
+		}
 	}
 
 	@Override
