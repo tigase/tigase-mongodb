@@ -175,6 +175,8 @@ public class MongoMucDAO
 			Date subjectDate = roomDoc.getDate("subject_date");
 			room.setSubjectChangeDate(subjectDate);
 
+			room.setAvatarHash(roomDoc.getString("avatar_hash"));
+
 			return room;
 		} catch (Exception ex) {
 			throw new RepositoryException("Error while reading room " + roomJID + " from database", ex);
