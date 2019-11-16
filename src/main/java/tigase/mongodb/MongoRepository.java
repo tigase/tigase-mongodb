@@ -43,6 +43,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -251,6 +252,32 @@ public class MongoRepository
 		try {
 			Document result = getDataInt(user, null, key);
 			return (result != null) ? result.getString("value") : null;
+		} catch (MongoException ex) {
+			throw new TigaseDBException("Problem retrieving data from repository", ex);
+		}
+	}
+
+	@Override
+	public Map<String, String> getDataMap(BareJID user, String subnode)
+			throws TigaseDBException {
+		return this.getDataMap(user, subnode, Function.identity());
+	}
+
+	@Override
+	public <T> Map<String, T> getDataMap(BareJID user, String subnode, Function<String, T> converter)
+			throws TigaseDBException {
+		try {
+			Bson crit = createCrit(user, subnode, null);
+			Map<String, T> result = new HashMap<>();
+			for (Document doc : nodesCollection.find(crit).projection(Projections.include("key", "value"))) {
+				String value = doc.getString("value");
+				if (value != null) {
+					result.put(doc.getString("key"), converter.apply(value));
+				} else {
+					result.put(doc.getString("key"), null);
+				}
+			}
+			return result;
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Problem retrieving data from repository", ex);
 		}
