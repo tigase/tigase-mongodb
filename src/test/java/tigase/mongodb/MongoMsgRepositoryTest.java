@@ -1,4 +1,4 @@
-/**
+/*
  * Tigase MongoDB - Tigase MongoDB support library
  * Copyright (C) 2014 Tigase, Inc. (office@tigase.com)
  *
