@@ -22,11 +22,11 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
-import org.bson.types.ObjectId;
 import tigase.archive.QueryCriteria;
 import tigase.archive.db.AbstractMessageArchiveRepository;
 import tigase.archive.db.MessageArchiveRepository;
@@ -53,7 +53,6 @@ import tigase.xmpp.rsm.RSM;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
@@ -74,7 +73,7 @@ import static tigase.mongodb.Helper.collectionExists;
 @Repository.SchemaId(id = Schema.MA_SCHEMA_ID, name = Schema.MA_SCHEMA_NAME, external = false)
 @RepositoryVersionAware.SchemaVersion
 public class MongoMessageArchiveRepository
-		extends AbstractMessageArchiveRepository<QueryCriteria, MongoDataSource>
+		extends AbstractMessageArchiveRepository<QueryCriteria, MongoDataSource, MongoMessageArchiveRepository.MongoDBAddMessageAdditionalDataProvider>
 		implements MongoRepositoryVersionAware {
 
 	private static final Logger log = Logger.getLogger(MongoMessageArchiveRepository.class.getCanonicalName());
@@ -109,43 +108,36 @@ public class MongoMessageArchiveRepository
 	}
 
 	@Override
-	public void archiveMessage(BareJID ownerJid, JID buddyJid, Direction direction, Date timestamp, Element msg,
-	                           Set<String> tags) {
+	protected void archiveMessage(BareJID ownerJid, BareJID buddyJid, Date timestamp, Element msg, String stableIdStr,
+								  String stanzaId, String refStableId, Set<String> tags,
+								  MongoDBAddMessageAdditionalDataProvider additionParametersProvider) {
 		try {
 			byte[] oid = generateId(ownerJid);
-			byte[] bid = generateId(buddyJid.getBareJID());
+			byte[] bid = generateId(buddyJid);
 			byte[] odid = calculateHash(ownerJid.getDomain());
 
 			String type = msg.getAttributeStaticStr("type");
 			Date date = new Date(timestamp.getTime() - (timestamp.getTime() % (24 * 60 * 60 * 1000)));
-			byte[] hash = generateHashOfMessage(direction, msg, timestamp, null);
 
-			Document crit = new Document("owner_id", oid).append("buddy_id", bid).append("hash", hash);
+			UUID stableId = UUID.fromString(stableIdStr);
 
-			if (type == null || !"groupchat".equals(type)) {
-				crit.append("ts", timestamp);
-			} else {
-				crit.append("ts", new Document("$gte", new Date(timestamp.getTime() - (30 * 60 * 1000))).append("$lte",
-				                                                                                                new Date(
-						                                                                                                timestamp
-								                                                                                                .getTime() +
-								                                                                                                (30 *
-										                                                                                                60 *
-										                                                                                                1000))));
-			}
+			Document crit = new Document("owner_id", oid).append("stable_id", stableId);
 
 			Document dto = new Document("owner", ownerJid.toString()).append("owner_id", oid)
 					.append("owner_domain_id", odid)
-					.append("buddy", buddyJid.getBareJID().toString())
+					.append("stable_id", stableId)
+					.append("buddy", buddyJid.toString())
 					.append("buddy_id", bid)
-					.append("buddy_res", buddyJid.getResource())
 					// adding date for aggregation
 					.append("date", date)
-					.append("direction", direction.name())
 					.append("ts", timestamp)
-					.append("type", type)
-					.append("msg", msg.toString())
-					.append("hash", hash);
+					.append("msg", msg.toString());
+			if (stableId != null) {
+				dto.append("stanza_id", stableId);
+			}
+			if (refStableId != null) {
+				dto.append("ref_stable_id", refStableId);
+			}
 
 			if (storePlaintextBody) {
 				String body = msg.getChildCData(MSG_BODY_PATH);
@@ -215,6 +207,12 @@ public class MongoMessageArchiveRepository
 	}
 
 	@Override
+	public void archiveMessage(BareJID owner, JID buddy, Direction direction, Date timestamp, Element msg,
+							   String stableId, Set tags) {
+		super.archiveMessage(owner, buddy.getBareJID(), timestamp, msg, stableId, tags, null);
+	}
+
+	@Override
 	public void deleteExpiredMessages(BareJID owner, LocalDateTime before) throws TigaseDBException {
 		try {
 			byte[] odid = calculateHash(owner.getDomain());
@@ -228,6 +226,11 @@ public class MongoMessageArchiveRepository
 		}
 	}
 
+	@Override
+	public String getStableId(BareJID owner, BareJID buddy, String stanzaId) throws TigaseDBException {
+		return null;
+	}
+
 	private Integer getColletionPosition(String uid) {
 		if (uid == null || uid.isEmpty()) {
 			return null;
@@ -237,7 +240,7 @@ public class MongoMessageArchiveRepository
 	}
 
 	private Integer getItemPosition(String uid, QueryCriteria query, Document crit)
-			throws SQLException, ComponentException {
+			throws TigaseDBException, ComponentException {
 		if (uid == null || uid.isEmpty()) {
 			return null;
 		}
@@ -247,19 +250,20 @@ public class MongoMessageArchiveRepository
 			return Integer.parseInt(uid);
 		}
 
-		Document idCrit = new Document(crit);
-		idCrit.append("hash", tigase.util.Base64.decode(uid));
+		byte[] ownerId = generateId(query.getQuestionerJID().getBareJID());
+		Bson idCrit = Filters.and(Filters.eq("owner_id", ownerId), Filters.eq("stable_id", UUID.fromString("uid")));
 
-		FindIterable<Document> cursor = msgsCollection.find(idCrit);
+		FindIterable<Document> cursor = msgsCollection.find(idCrit).projection(Projections.include("ts"));
 		Document doc = cursor.first();
 		if (doc == null) {
 			System.out.println("item with " + uid + " not found");
 			return null;
 		}
-		ObjectId id = cursor.first().getObjectId("_id");
+		
+		Date ts = doc.getDate("ts");
 
 		Document positionCrit = new Document(crit);
-		positionCrit.append("_id", new Document("$lt", id));
+		positionCrit.append("ts", new Document("$lt", ts));
 
 		long position = msgsCollection.count(positionCrit);
 
@@ -271,7 +275,7 @@ public class MongoMessageArchiveRepository
 
 		return (int) (position);
 	}
-
+	
 	@Override
 	public List<String> getTags(BareJID owner, String startsWith, QueryCriteria criteria) throws TigaseDBException {
 		List<String> results = new ArrayList<String>();
@@ -327,7 +331,7 @@ public class MongoMessageArchiveRepository
 	}
 
 	@Override
-	public void queryCollections(QueryCriteria query, CollectionHandler<QueryCriteria> collectionHandler)
+	public void queryCollections(QueryCriteria query, CollectionHandler<QueryCriteria, Collection> collectionHandler)
 			throws TigaseDBException {
 		try {
 			Bson crit = createCriteriaDocument(query);
@@ -369,7 +373,17 @@ public class MongoMessageArchiveRepository
 				for (Document dto : cursor) {
 					String buddy = (String) dto.get("buddy");
 					Date ts = (Date) dto.get("ts");
-					collectionHandler.collectionFound(query, buddy, ts, null);
+					collectionHandler.collectionFound(query, new Collection() {
+						@Override
+						public Date getStartTs() {
+							return ts;
+						}
+
+						@Override
+						public String getWith() {
+							return buddy;
+						}
+					});
 				}
 			}
 
@@ -410,17 +424,17 @@ public class MongoMessageArchiveRepository
 				int i = 0;
 				Date startTimestamp = query.getStart();
 				DomBuilderHandler domHandler = new DomBuilderHandler();
-				Item item = new Item();
 				while (iter.hasNext()) {
+					Item item = new Item();
+					item.owner = query.getQuestionerJID().getBareJID();
 					Document dto = iter.next();
 
 					String msgStr = (String) dto.get("msg");
 					item.timestamp = (Date) dto.get("ts");
-					item.direction = Direction.valueOf((String) dto.get("direction"));
 
 					item.with = (crit.containsKey("buddy")) ? null : (String) dto.get("buddy");
 					if (query.getUseMessageIdInRsm()) {
-						item.id = tigase.util.Base64.encode(((Binary) dto.get("hash")).getData());
+						item.id = ((UUID) dto.get("stable_id")).toString();
 					}
 
 					parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
@@ -483,9 +497,10 @@ public class MongoMessageArchiveRepository
 
 		msgsCollection.createIndex(new Document("owner_id", 1).append("date", 1));
 		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("ts", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("ts", 1));
 		msgsCollection.createIndex(new Document("body", "text"));
 		msgsCollection.createIndex(new Document("owner_id", 1).append("tags", 1));
-		msgsCollection.createIndex(new Document("owner_id", 1).append("buddy_id", 1).append("hash", 1).append("ts", 1));
+		msgsCollection.createIndex(new Document("owner_id", 1).append("stable_id", 1));
 		msgsCollection.createIndex(new Document("owner_domain_id", 1).append("ts", 1));
 
 		this.db = db;
@@ -520,13 +535,18 @@ public class MongoMessageArchiveRepository
 			Document update = new Document("buddy_id", newBuddyId);
 			msgsCollection.updateMany(new Document("buddy_id", oldBuddyId), new Document("$set", update));
 		}
+		FindIterable<Document> msgsWithoutStableId = msgsCollection.find(Filters.exists("stable_id", false)).projection(Projections.include());
+		for (Document doc: msgsWithoutStableId) {
+			Document update = new Document("stable_id", UUID.randomUUID());
+			msgsCollection.updateOne(doc, new Document("$set", update));
+		}
 		return SchemaLoader.Result.ok;
 	}
 
 	public static class Item<Q extends QueryCriteria>
 			implements MessageArchiveRepository.Item {
 
-		Direction direction;
+		BareJID owner;
 		String id;
 		Element messageEl;
 		Date timestamp;
@@ -534,7 +554,12 @@ public class MongoMessageArchiveRepository
 
 		@Override
 		public Direction getDirection() {
-			return direction;
+			JID jid = JID.jidInstanceNS(getMessage().getAttributeStaticStr("to"));
+			if (jid == null || !owner.equals(jid.getBareJID())) {
+				return Direction.outgoing;
+			} else {
+				return Direction.incoming;
+			}
 		}
 
 		@Override
@@ -556,6 +581,10 @@ public class MongoMessageArchiveRepository
 		public String getWith() {
 			return with;
 		}
+	}
+
+	public static class MongoDBAddMessageAdditionalDataProvider implements AbstractMessageArchiveRepository.AddMessageAdditionalDataProvider {
+
 	}
 
 }
