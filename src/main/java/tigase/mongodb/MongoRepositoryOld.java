@@ -182,8 +182,8 @@ public class MongoRepositoryOld
 	}
 
 	@Override
-	public Credentials getCredentials(BareJID user, String username) throws TigaseDBException {
-		return auth.getCredentials(user, username);
+	public Credentials getCredentials(BareJID user, String credentialId) throws TigaseDBException {
+		return auth.getCredentials(user, credentialId);
 	}
 
 	@Override
@@ -419,7 +419,7 @@ public class MongoRepositoryOld
 
 	// TODO: add support for credentials!!
 	@Override
-	public void removeCredential(BareJID user, String username) throws TigaseDBException {
+	public void removeCredential(BareJID user, String credentialId) throws TigaseDBException {
 
 	}
 
@@ -582,8 +582,8 @@ public class MongoRepositoryOld
 	}
 
 	@Override
-	public void updateCredential(BareJID user, String username, String password) throws TigaseDBException {
-		auth.updateCredential(user, username, password);
+	public void updateCredential(BareJID user, String credentialId, String password) throws TigaseDBException {
+		auth.updateCredential(user, credentialId, password);
 	}
 
 	@Override

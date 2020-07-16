@@ -112,7 +112,7 @@ public class MongoRepository
 	public void addUser(BareJID user, String password) throws UserExistsException, TigaseDBException {
 		this.addUser(user);
 		if (password != null) {
-			updateCredential(user, Credentials.DEFAULT_USERNAME, password);
+			updateCredential(user, Credentials.DEFAULT_CREDENTIAL_ID, password);
 		}
 	}
 
@@ -187,16 +187,16 @@ public class MongoRepository
 	}
 
 	@Override
-	public Credentials getCredentials(BareJID user, String username) throws TigaseDBException {
+	public Credentials getCredentials(BareJID user, String credentialId) throws TigaseDBException {
 		byte[] uid = generateId(user);
 
 		List<String> mechanisms = getCredentialsDecoder().getSupportedMechanisms();
 		Bson projecton = Projections.fields(Projections.include(mechanisms), Projections.include(ACCOUNT_STATUS_KEY));
 		Document doc = userCredentialsCollection.find(
-				Filters.and(Filters.eq("uid", uid), Filters.eq("username", username))).projection(projecton).first();
+				Filters.and(Filters.eq("uid", uid), Filters.eq("username", credentialId))).projection(projecton).first();
 
 		if (doc == null) {
-			if (Credentials.DEFAULT_USERNAME.equals(username) && passwordInUsersCollection) {
+			if (Credentials.DEFAULT_CREDENTIAL_ID.equals(credentialId) && passwordInUsersCollection) {
 				Document userDto = usersCollection.findOneAndUpdate(Filters.eq("_id", uid),
 				                                                    Updates.unset(PASSWORD_KEY));
 				if (userDto == null) {
@@ -208,7 +208,7 @@ public class MongoRepository
 					AccountStatus accountStatus = userDto.getString(ACCOUNT_STATUS_KEY) == null
 					                              ? AccountStatus.active
 					                              : AccountStatus.valueOf(userDto.getString(ACCOUNT_STATUS_KEY));
-					updateCredential(user, Credentials.DEFAULT_USERNAME, password);
+					updateCredential(user, Credentials.DEFAULT_CREDENTIAL_ID, password);
 					return new SingleCredential(user, accountStatus, new PlainCredentialsEntry(password));
 				}
 			}
@@ -366,18 +366,18 @@ public class MongoRepository
 	}
 
 	@Override
-	public Collection<String> getUsernames(BareJID user) throws TigaseDBException {
+	public Collection<String> getCredentialIds(BareJID user) throws TigaseDBException {
 		try {
 			byte[] uid = generateId(user);
 			Bson projecton = Projections.include("username");
-			List<String> usernames = new ArrayList<>();
+			List<String> credentialIds = new ArrayList<>();
 			userCredentialsCollection.find(Filters.eq("uid", uid))
 					.projection(projecton)
 					.map(doc -> doc.getString("username"))
-					.forEach((Consumer<? super String>) usernames::add);
-			return usernames;
+					.forEach((Consumer<? super String>) credentialIds::add);
+			return credentialIds;
 		} catch (MongoException ex) {
-			throw new TigaseDBException("Error getting list of usernames for user " + user + ": ", ex);
+			throw new TigaseDBException("Error getting list of credentialIds for user " + user + ": ", ex);
 		}
 	}
 
@@ -489,9 +489,9 @@ public class MongoRepository
 	}
 
 	@Override
-	public void removeCredential(BareJID user, String username) throws TigaseDBException {
+	public void removeCredential(BareJID user, String credentialId) throws TigaseDBException {
 		byte[] uid = generateId(user);
-		userCredentialsCollection.deleteMany(Filters.and(Filters.eq("uid", uid), Filters.eq("username", username)));
+		userCredentialsCollection.deleteMany(Filters.and(Filters.eq("uid", uid), Filters.eq("username", credentialId)));
 	}
 
 	@Override
@@ -638,26 +638,26 @@ public class MongoRepository
 	}
 
 	@Override
-	public void updateCredential(BareJID user, String username, String password) throws TigaseDBException {
+	public void updateCredential(BareJID user, String credentialId, String password) throws TigaseDBException {
 		List<String[]> credentials = getCredentialsEncoder().encodeForAllMechanisms(user, password);
 
 		byte[] uid = generateId(user);
 		AccountStatus accountStatus = Optional.ofNullable(getAccountStatus(user)).orElse(AccountStatus.active);
 		Document doc = new Document().append("uid", uid)
-				.append("username", username)
+				.append("username", credentialId)
 				.append(ACCOUNT_STATUS_KEY, accountStatus.name());
 		for (String[] pair : credentials) {
 			doc.append(pair[0], pair[1]);
 		}
 
 		userCredentialsCollection.findOneAndReplace(
-				Filters.and(Filters.eq("uid", uid), Filters.eq("username", username)), doc,
+				Filters.and(Filters.eq("uid", uid), Filters.eq("username", credentialId)), doc,
 				new FindOneAndReplaceOptions().upsert(true));
 	}
 
 	@Override
 	public void updatePassword(BareJID user, String password) throws UserNotFoundException, TigaseDBException {
-		updateCredential(user, Credentials.DEFAULT_USERNAME, password);
+		updateCredential(user, Credentials.DEFAULT_CREDENTIAL_ID, password);
 	}
 
 	@Override
