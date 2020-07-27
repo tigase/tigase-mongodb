@@ -18,7 +18,6 @@
 package tigase.mongodb.pubsub;
 
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Filters;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.junit.FixMethodOrder;
@@ -32,13 +31,13 @@ import tigase.pubsub.NodeType;
 import tigase.pubsub.Subscription;
 import tigase.pubsub.repository.AbstractPubSubDAOTest;
 import tigase.pubsub.repository.INodeMeta;
-import tigase.pubsub.repository.stateless.UsersAffiliation;
 import tigase.util.Version;
 import tigase.xmpp.jid.BareJID;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -63,15 +62,7 @@ public class PubSubDAOMongoTest
 	protected MongoDatabase getDatabase() {
 		return getDataSource().getDatabase();
 	}
-
-	@Override
-	protected String getMAMID(Object nodeId, String itemId) {
-		Document dto = getDatabase().getCollection("tig_pubsub_items")
-				.find(Filters.and(Filters.eq("node_id", nodeId), Filters.eq("item_id", itemId)))
-				.first();
-		return dto.getObjectId("_id").toString();
-	}
-
+	
 	@Test
 	public void testSchemaUpgrade_JidComparison() throws Exception {
 		BareJID serviceJid = BareJID.bareJIDInstance("TeSt@example.com");
@@ -133,15 +124,14 @@ public class PubSubDAOMongoTest
 
 		assertNotNull(dao.getItem(serviceJid, meta.getNodeId(), itemId));
 
-		UsersAffiliation affil = dao.getNodeAffiliations(serviceJid, meta.getNodeId())
-				.getSubscriberAffiliation(serviceJid);
+		Map<BareJID, Affiliation> affil = dao.getNodeAffiliations(serviceJid, meta.getNodeId());
 		assertNotNull(affil);
-		assertEquals(serviceJid.toString(), affil.getJid().toString());
+		assertNotNull(affil.get(serviceJid));
 
 		assertEquals(Subscription.subscribed,
-		             dao.getNodeSubscriptions(serviceJid, meta.getNodeId()).getSubscription(serviceJid));
+		             dao.getNodeSubscriptions(serviceJid, meta.getNodeId()).get(serviceJid));
 
-		dao.removeService(serviceJid);
+		dao.deleteService(serviceJid);
 	}
 
 }

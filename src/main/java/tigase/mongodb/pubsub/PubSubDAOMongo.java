@@ -46,12 +46,12 @@ import tigase.xml.Element;
 import tigase.xmpp.Authorization;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.mam.MAMRepository;
+import tigase.xmpp.rsm.RSM;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
-import java.util.function.Consumer;
 
 import static com.mongodb.client.model.Projections.include;
 import static tigase.mongodb.Helper.collectionExists;
@@ -69,6 +69,7 @@ public class PubSubDAOMongo
 
 	public static final String PUBSUB_AFFILIATIONS = "tig_pubsub_affiliations";
 	public static final String PUBSUB_ITEMS = "tig_pubsub_items";
+	public static final String PUBSUB_MAM = "tig_pubsub_mam";
 	public static final String PUBSUB_NODES = "tig_pubsub_nodes";
 	public static final String PUBSUB_SERVICE_JIDS = "tig_pubsub_service_jids";
 	public static final String PUBSUB_SUBSCRIPTIONS = "tig_pubsub_subscriptions";
@@ -83,14 +84,11 @@ public class PubSubDAOMongo
 	private MongoCollection<Document> nodesCollection;
 	private MongoCollection<Document> serviceJidsCollection;
 	private MongoCollection<Document> subscriptionsCollection;
+	private MongoCollection<Document> mamCollection;
 
 	public PubSubDAOMongo() {
 	}
-
-	@Override
-	public void addToRootCollection(BareJID serviceJid, String nodeName) throws RepositoryException {
-	}
-
+	
 	private byte[] calculateHash(String in) throws RepositoryException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
@@ -111,11 +109,11 @@ public class PubSubDAOMongo
 		}
 		return crit;
 	}
-
+	
 	@Override
 	public ObjectId createNode(BareJID serviceJid, String nodeName, BareJID ownerJid, AbstractNodeConfig nodeConfig,
-	                           NodeType nodeType, ObjectId collectionId) throws RepositoryException {
-		ensureServiceJid(serviceJid);
+	                           NodeType nodeType, ObjectId collectionId, boolean autocreate) throws RepositoryException {
+		ensureServiceJid(serviceJid, autocreate);
 		try {
 			String serializedNodeConfig = null;
 			if (nodeConfig != null) {
@@ -142,6 +140,19 @@ public class PubSubDAOMongo
 	}
 
 	@Override
+	public void createService(BareJID serviceJid, boolean isPublic) throws RepositoryException {
+		try {
+			byte[] id = generateId(serviceJid);
+			Document crit = new Document("_id", id).append("service_jid", serviceJid.toString())
+					.append("domain", serviceJid.getDomain())
+					.append("is_public", isPublic ? 1 : 0);
+			serviceJidsCollection.insertOne(crit);
+		} catch (MongoException ex) {
+			throw new RepositoryException("Could not create service", ex);
+		}
+	}
+
+	@Override
 	public void deleteItem(BareJID serviceJid, ObjectId nodeId, String id) throws RepositoryException {
 		try {
 			Document crit = new Document("node_id", nodeId).append("item_id", id);
@@ -164,11 +175,15 @@ public class PubSubDAOMongo
 		}
 	}
 
-	private void ensureServiceJid(BareJID serviceJid) throws RepositoryException {
-		byte[] id = generateId(serviceJid);
+	private void ensureServiceJid(BareJID serviceJid, boolean autoCreate) throws RepositoryException {
 		try {
-			Document crit = new Document("_id", id).append("service_jid", serviceJid.toString());
-			serviceJidsCollection.updateOne(crit, new Document("$set", crit), new UpdateOptions().upsert(true));
+			byte[] id = generateId(serviceJid);
+			if (serviceJidsCollection.count(Filters.and(Filters.eq("_id", id), Filters.eq("service_id", serviceJid.toString()))) == 0) {
+				// no service jid
+				if (autoCreate) {
+					this.createService(serviceJid, true);
+				}
+			}
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not create entry for service jid " + serviceJid, ex);
 		}
@@ -197,30 +212,67 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public Element getItem(BareJID serviceJid, ObjectId nodeId, String id) throws RepositoryException {
+	public IItems.IItem getItem(BareJID serviceJid, ObjectId nodeId, String id) throws RepositoryException {
 		try {
 			Document crit = new Document("node_id", nodeId).append("item_id", id);
 			Document dto = itemsCollecton.find(crit).first();
 			if (dto == null) {
 				return null;
 			}
-			return itemDataToElement(((String) dto.get("item")).toCharArray());
+
+			return new IItems.Item(dto.getString("node"), id,
+								   Optional.ofNullable((UUID) dto.get("uuid")).map(String::valueOf).orElse(null),
+								   itemDataToElement(((String) dto.get("item")).toCharArray()));
 		} catch (MongoException ex) {
 			throw new RepositoryException("Error while retrieving item from repository", ex);
 		}
 	}
 
 	@Override
-	public Date getItemCreationDate(BareJID serviceJid, ObjectId nodeId, String id) throws RepositoryException {
+	public List<IItems.IItem> getItems(BareJID serviceJid, List<ObjectId> nodeIds, Date afterDate, Date beforeDate, RSM rsm,
+									   CollectionItemsOrdering collectionItemsOrdering) throws RepositoryException {
 		try {
-			Document crit = new Document("node_id", nodeId).append("item_id", id);
-			Document dto = itemsCollecton.find(crit).projection(new Document("creation_date", 1)).first();
-			if (dto == null) {
-				return null;
+			List<Bson> filters = new ArrayList<>();
+			filters.add(Filters.in("node_id", nodeIds));
+			String timestampField =
+					collectionItemsOrdering == CollectionItemsOrdering.byCreationDate ? "creation_date" : "update_date";
+			if (afterDate != null) {
+				filters.add(Filters.gte(timestampField, afterDate));
 			}
-			return (Date) dto.get("creation_date");
+			if (beforeDate != null) {
+				filters.add(Filters.lte(timestampField, beforeDate));
+			}
+
+			Bson filter = Filters.and(filters);
+			long count = itemsCollecton.count(filter);
+
+			Long after = getItemPosition(rsm.getAfter(), filter, timestampField);
+			Long before = getItemPosition(rsm.getBefore(), filter, timestampField);
+
+			calculateOffsetAndPosition(rsm, (int) count, before == null ? null : before.intValue(),
+									   after == null ? null : after.intValue());
+
+			Map<ObjectId, String> nodes = new HashMap<>();
+			for (Document dto : nodesCollection.find(Filters.in("_id", nodeIds)).batchSize(batchSize).projection(Projections.include("node_name"))) {
+				nodes.put(dto.getObjectId("_id"), dto.getString("node_name"));
+			}
+			
+			List<IItems.IItem> items = new ArrayList<>();
+			Document order = new Document(timestampField, 1);
+			FindIterable<Document> cursor = itemsCollecton.find(filter).sort(order).skip(rsm.getIndex()).limit(rsm.getMax());
+			for (Document dto : cursor) {
+				String node = nodes.get(dto.getObjectId("node_id"));
+				String id = dto.getString("item_id");
+				String uuid = Optional.ofNullable((UUID) dto.get("uuid")).map(UUID::toString).orElse(null);
+				Element itemEl = itemDataToElement(dto.getString("data"));
+
+				items.add(new IItems.Item(node, id, uuid, itemEl));
+			}
+			return items;
 		} catch (MongoException ex) {
-			throw new RepositoryException("Error while retrieving item creation date from repository", ex);
+			throw new RepositoryException(ex.getMessage(), ex);
+		} catch (ComponentException ex) {
+			throw new RepositoryException(ex.getMessage(), ex);
 		}
 	}
 
@@ -241,20 +293,23 @@ public class PubSubDAOMongo
 		return itemsCollecton.count(Filters.and(filter, Filters.lt(timestampField, ts)));
 	}
 
-	@Override
-	public Date getItemUpdateDate(BareJID serviceJid, ObjectId nodeId, String id) throws RepositoryException {
-		try {
-			Document crit = new Document("node_id", nodeId).append("item_id", id);
-			Document dto = itemsCollecton.find(crit).projection(new Document("update_date", 1)).first();
-			if (dto == null) {
-				return null;
-			}
-			return (Date) dto.get("update_date");
-		} catch (MongoException ex) {
-			throw new RepositoryException("Error while retrieving item update date from repository", ex);
+	private Long getMAMItemPosition(String msgId, Bson filter) throws ComponentException {
+		if (msgId == null) {
+			return null;
 		}
-	}
 
+		ObjectId id = new ObjectId(msgId);
+		Document doc = mamCollection.find(Filters.eq("_id", id))
+				.projection(Projections.include("ts"))
+				.first();
+		if (doc == null) {
+			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Not found item with id = " + msgId);
+		}
+		Date ts = doc.getDate("ts");
+
+		return mamCollection.count(Filters.and(filter, Filters.lt("ts", ts)));
+	}
+	
 	@Override
 	public String[] getItemsIds(BareJID serviceJid, ObjectId nodeId, CollectionItemsOrdering order) throws RepositoryException {
 		try {
@@ -290,47 +345,38 @@ public class PubSubDAOMongo
 					.projection(new Document("item_id", 1).append("creation_date", 1));
 			List<IItems.ItemMeta> results = new ArrayList<IItems.ItemMeta>();
 			for (Document it : cursor) {
-				results.add(new IItems.ItemMeta(nodeName, (String) it.get("item_id"), (Date) it.get("creation_date")));
+				results.add(new IItems.ItemMeta(nodeName, (String) it.get("item_id"), (Date) it.get("creation_date"),
+												(Date) it.get("update_date"), Optional.ofNullable((UUID) it.get("uuid"))
+														.map(UUID::toString)
+														.orElse(null)));
 			}
 			return results;
 		} catch (MongoException ex) {
 			throw new RepositoryException("Error while retrieving item ids from repository", ex);
 		}
 	}
-
+	
 	@Override
-	public NodeAffiliations getNodeAffiliations(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
+	public Map<BareJID, UsersAffiliation> getNodeAffiliations(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
 		try {
 			Document crit = new Document("node_id", nodeId);
 			FindIterable<Document> cursor = affiliationsCollection.find(crit)
 					.projection(new Document("jid", 1).append("affiliation", 1))
 					.batchSize(batchSize);
 
-			Queue<UsersAffiliation> data = new ArrayDeque<UsersAffiliation>();
+			Map<BareJID, UsersAffiliation> data = new HashMap<>();
 			for (Document it : cursor) {
 				BareJID jid = BareJID.bareJIDInstanceNS((String) it.get("jid"));
 				Affiliation affil = Affiliation.valueOf((String) it.get("affiliation"));
-				data.offer(new UsersAffiliation(jid, affil));
+				data.put(jid, new UsersAffiliation(jid, affil));
 			}
-			return NodeAffiliations.create(data);
+			return data;
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not retrieve node affiliations", ex);
 		}
 	}
 
-	@Override
-	public String getNodeConfig(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
-		try {
-			Document crit = new Document("_id", nodeId);
-			Document result = nodesCollection.find(crit).first();
-			return result == null ? null : (String) result.get("configuration");
-		} catch (MongoException ex) {
-			throw new RepositoryException("Could not retrieve node configuration", ex);
-		}
-	}
-
-	@Override
-	public ObjectId getNodeId(BareJID serviceJid, String nodeName) throws RepositoryException {
+	private ObjectId getNodeId(BareJID serviceJid, String nodeName) throws RepositoryException {
 		try {
 			Document crit = createCrit(serviceJid, nodeName);
 			Document result = nodesCollection.find(crit).first();
@@ -359,23 +405,21 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public NodeSubscriptions getNodeSubscriptions(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
+	public Map<BareJID, UsersSubscription> getNodeSubscriptions(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
 		try {
 			Document crit = new Document("node_id", nodeId);
 			FindIterable<Document> cursor = subscriptionsCollection.find(crit)
 					.projection(new Document("jid", 1).append("subscription", 1).append("subscription_id", 1))
 					.batchSize(batchSize);
 
-			Queue<UsersSubscription> data = new ArrayDeque<UsersSubscription>();
+			Map<BareJID, UsersSubscription> data = new HashMap<>();
 			for (Document it : cursor) {
 				BareJID jid = BareJID.bareJIDInstanceNS((String) it.get("jid"));
 				Subscription subscr = Subscription.valueOf((String) it.get("subscription"));
 				String subscr_id = (String) it.get("subscription_id");
-				data.offer(new UsersSubscription(jid, subscr_id, subscr));
+				data.put(jid, new UsersSubscription(jid, subscr_id, subscr));
 			}
-			NodeSubscriptions result = NodeSubscriptions.create();
-			result.init(data);
-			return result;
+			return data;
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not retrieve node affiliations", ex);
 		}
@@ -464,58 +508,52 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public void queryItems(Query query, List<ObjectId> nodesIds,
+	public void addMAMItem(BareJID serviceJid, ObjectId nodeId, String uuid, Element message, String itemId)
+			throws RepositoryException {
+		try {
+			mamCollection.insertOne(new Document("node_id", nodeId).append("uuid", UUID.fromString(uuid))
+											.append("data", message.toString())
+											.append("item_id", itemId));
+		} catch (MongoException ex) {
+			throw new RepositoryException("Could not insert MAM entry", ex);
+		}
+	}
+
+	@Override
+	public void queryItems(Query query, ObjectId nodeId,
 	                       MAMRepository.ItemHandler<Query, IPubSubRepository.Item> itemHandler)
-			throws RepositoryException, ComponentException {
+			throws RepositoryException {
 		try {
 			List<Bson> filters = new ArrayList<>();
-			filters.add(Filters.in("node_id", nodesIds));
-			String timestampField =
-					query.getOrder() == CollectionItemsOrdering.byCreationDate ? "creation_date" : "update_date";
+			filters.add(Filters.eq("node_id", nodeId));
+			String timestampField = "ts";
 			if (query.getStart() != null) {
 				filters.add(Filters.gte(timestampField, query.getStart()));
 			}
 			if (query.getEnd() != null) {
 				filters.add(Filters.lte(timestampField, query.getEnd()));
 			}
-			if (query.getWith() != null) {
-				filters.add(Filters.eq("publisher", query.getWith().toString()));
-			}
 
 			Bson filter = Filters.and(filters);
-			long count = itemsCollecton.count(filter);
+			long count = mamCollection.count(filter);
 
-			Long after = getItemPosition(query.getRsm().getAfter(), filter, timestampField);
-			Long before = getItemPosition(query.getRsm().getBefore(), filter, timestampField);
+			Long after = getMAMItemPosition(query.getRsm().getAfter(), filter);
+			Long before = getMAMItemPosition(query.getRsm().getBefore(), filter);
 
-			calculateOffsetAndPosition(query, (int) count, before == null ? null : before.intValue(),
+			calculateOffsetAndPosition(query.getRsm(), (int) count, before == null ? null : before.intValue(),
 			                           after == null ? null : after.intValue());
-
-			Map<ObjectId, String> nodeNames = new HashMap<>();
-			nodesCollection.find(Filters.in("_id", nodesIds))
-					.projection(Projections.include("node_name"))
-					.forEach((Consumer<? super Document>) document -> nodeNames.put(document.getObjectId("_id"),
-					                                                                document.getString("node_name")));
-
+			
 			Document order = new Document(timestampField, 1);
-			FindIterable<Document> cursor = itemsCollecton.find(filter)
+			FindIterable<Document> cursor = mamCollection.find(filter)
 					.sort(order)
 					.skip(query.getRsm().getIndex())
 					.limit(query.getRsm().getMax());
 			for (Document dto : cursor) {
-				ObjectId id = dto.getObjectId("_id");
-				ObjectId nodeId = dto.getObjectId("node_id");
-				String nodeName = nodeNames.get(nodeId);
-				String itemId = dto.getString("item_id");
-				Date creationDate = dto.getDate(timestampField);
-				Element itemEl = itemDataToElement(dto.getString("item"));
+				UUID uuid = (UUID) dto.get("uuid");
+				Date ts = dto.getDate("ts");
+				Element itemEl = itemDataToElement(dto.getString("data"));
 
-				itemHandler.itemFound(query, new Item(nodeName, nodeId, itemId, creationDate, itemEl) {
-					@Override
-					public String getId() {
-						return id.toString();
-					}
-				});
+				itemHandler.itemFound(query, new MAMItem(uuid.toString(),  ts, itemEl));
 			}
 		} catch (Exception ex) {
 			throw new RepositoryException(ex);
@@ -548,7 +586,6 @@ public class PubSubDAOMongo
 		return result;
 	}
 
-	@Override
 	public void removeAllFromRootCollection(BareJID serviceJid) throws RepositoryException {
 		try {
 			byte[] serviceJidId = generateId(serviceJid);
@@ -561,10 +598,6 @@ public class PubSubDAOMongo
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not remove all nodes from root collection", ex);
 		}
-	}
-
-	@Override
-	public void removeFromRootCollection(BareJID serviceJid, ObjectId nodeId) throws RepositoryException {
 	}
 
 	@Override
@@ -582,7 +615,7 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public void removeService(BareJID serviceJid) throws RepositoryException {
+	public void deleteService(BareJID serviceJid) throws RepositoryException {
 		try {
 			removeAllFromRootCollection(serviceJid);
 
@@ -594,6 +627,19 @@ public class PubSubDAOMongo
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not remove service with jid = " + serviceJid, ex);
 		}
+	}
+
+	@Override
+	public List<BareJID> getServices(BareJID bareJID, Boolean isPublic) throws RepositoryException {
+		 Bson filter = Filters.eq("domain", bareJID.getDomain());
+		if (isPublic != null) {
+			filter = Filters.and(filter, Filters.eq("is_public", isPublic ? 1 : 0));
+		}
+		List<BareJID> result = new ArrayList<>();
+		for(Document doc : serviceJidsCollection.find(filter).batchSize(batchSize).projection(Projections.include("service_jid"))) {
+			result.add(BareJID.bareJIDInstanceNS(doc.getString("service_jid")));
+		}
+		return result;
 	}
 
 	public void setDataSource(MongoDataSource dataSource) {
@@ -643,6 +689,11 @@ public class PubSubDAOMongo
 		itemsCollecton.createIndex(new Document("node_id", 1));
 		itemsCollecton.createIndex(new Document("node_id", 1).append("item_id", 1), new IndexOptions().unique(true));
 		itemsCollecton.createIndex(new Document("node_id", 1).append("creation_date", 1));
+
+		if (!collectionExists(db, PUBSUB_MAM)) {
+			db.createCollection(PUBSUB_MAM);
+		}
+		mamCollection = db.getCollection(PUBSUB_MAM);
 	}
 
 	@Override
@@ -778,13 +829,13 @@ public class PubSubDAOMongo
 
 	@Override
 	public void writeItem(BareJID serviceJid, ObjectId nodeId, long timeInMilis, String id, String publisher,
-	                      Element item) throws RepositoryException {
+	                      Element item, String uuid) throws RepositoryException {
 		try {
 			byte[] serviceJidId = generateId(serviceJid);
 			Document crit = new Document("service_jid_id", serviceJidId).append("service_jid", serviceJid.toString());
 			crit.append("node_id", nodeId).append("item_id", id);
 			Document dto = new Document("$set", new Document("update_date", new Date()).append("publisher", publisher)
-					.append("item", item.toString()));
+					.append("item", item.toString()).append("uuid", uuid == null ? null : UUID.fromString(uuid)));
 			dto.append("$setOnInsert", new Document("creation_date", new Date()));
 			itemsCollecton.updateOne(crit, dto, new UpdateOptions().upsert(true));
 		} catch (MongoException ex) {
