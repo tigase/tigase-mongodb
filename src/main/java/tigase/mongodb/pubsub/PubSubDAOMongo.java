@@ -178,10 +178,10 @@ public class PubSubDAOMongo
 	private void ensureServiceJid(BareJID serviceJid, boolean autoCreate) throws RepositoryException {
 		try {
 			byte[] id = generateId(serviceJid);
-			if (serviceJidsCollection.count(Filters.and(Filters.eq("_id", id), Filters.eq("service_id", serviceJid.toString()))) == 0) {
+			if (serviceJidsCollection.count(Filters.and(Filters.eq("_id", id), Filters.eq("service_jid", serviceJid.toString()))) == 0) {
 				// no service jid
 				if (autoCreate) {
-					this.createService(serviceJid, true);
+					this.createService(serviceJid, false);
 				}
 			}
 		} catch (MongoException ex) {
