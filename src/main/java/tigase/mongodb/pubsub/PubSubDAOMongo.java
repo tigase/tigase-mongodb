@@ -264,7 +264,7 @@ public class PubSubDAOMongo
 				String node = nodes.get(dto.getObjectId("node_id"));
 				String id = dto.getString("item_id");
 				String uuid = Optional.ofNullable((UUID) dto.get("uuid")).map(UUID::toString).orElse(null);
-				Element itemEl = itemDataToElement(dto.getString("data"));
+				Element itemEl = itemDataToElement(dto.getString("item"));
 
 				items.add(new IItems.Item(node, id, uuid, itemEl));
 			}
@@ -512,6 +512,7 @@ public class PubSubDAOMongo
 			throws RepositoryException {
 		try {
 			mamCollection.insertOne(new Document("node_id", nodeId).append("uuid", UUID.fromString(uuid))
+											.append("ts", new Date())
 											.append("data", message.toString())
 											.append("item_id", itemId));
 		} catch (MongoException ex) {
