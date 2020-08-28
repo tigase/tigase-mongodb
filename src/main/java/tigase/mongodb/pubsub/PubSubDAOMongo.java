@@ -298,8 +298,8 @@ public class PubSubDAOMongo
 			return null;
 		}
 
-		ObjectId id = new ObjectId(msgId);
-		Document doc = mamCollection.find(Filters.eq("_id", id))
+		UUID uuid = UUID.fromString(msgId);
+		Document doc = mamCollection.find(Filters.eq("uuid", uuid))
 				.projection(Projections.include("ts"))
 				.first();
 		if (doc == null) {
