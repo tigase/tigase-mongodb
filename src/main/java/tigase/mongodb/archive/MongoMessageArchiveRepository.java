@@ -207,7 +207,7 @@ public class MongoMessageArchiveRepository
 	}
 
 	@Override
-	public void archiveMessage(BareJID owner, JID buddy, Direction direction, Date timestamp, Element msg,
+	public void archiveMessage(BareJID owner, JID buddy, Date timestamp, Element msg,
 							   String stableId, Set tags) {
 		super.archiveMessage(owner, buddy.getBareJID(), timestamp, msg, stableId, tags, null);
 	}
