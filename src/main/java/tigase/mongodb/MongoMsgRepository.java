@@ -312,6 +312,7 @@ public class MongoMsgRepository
 		try {
 			if (expiredQueue.size() > 100 * MAX_QUEUE_SIZE) {
 				expiredQueue.clear();
+				awaitingInExpiredQueue.set(0);
 			}
 
 			FindIterable<Document> cursor = msgHistoryCollection.find(
@@ -519,7 +520,7 @@ public class MongoMsgRepository
 					earliestOffline = expired.getTime();
 				}
 
-				if (expiredQueue.size() == 0) {
+				if (awaitingInExpiredQueue.get() == 0) {
 					loadExpiredQueue(1);
 				}
 			}
