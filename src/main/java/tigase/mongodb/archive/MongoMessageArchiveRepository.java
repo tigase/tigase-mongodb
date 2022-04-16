@@ -48,6 +48,8 @@ import tigase.xmpp.Authorization;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.jid.JID;
 import tigase.xmpp.mam.MAMRepository;
+import tigase.xmpp.mam.util.MAMUtil;
+import tigase.xmpp.mam.util.Range;
 import tigase.xmpp.rsm.RSM;
 
 import java.nio.charset.Charset;
@@ -59,6 +61,7 @@ import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.mongodb.client.model.Accumulators.*;
 import static com.mongodb.client.model.Aggregates.*;
@@ -251,7 +254,7 @@ public class MongoMessageArchiveRepository
 		}
 
 		byte[] ownerId = generateId(query.getQuestionerJID().getBareJID());
-		Bson idCrit = Filters.and(Filters.eq("owner_id", ownerId), Filters.eq("stable_id", UUID.fromString("uid")));
+		Bson idCrit = Filters.and(Filters.eq("owner_id", ownerId), Filters.eq("stable_id", UUID.fromString(uid)));
 
 		FindIterable<Document> cursor = msgsCollection.find(idCrit).projection(Projections.include("ts"));
 		Document doc = cursor.first();
@@ -270,7 +273,7 @@ public class MongoMessageArchiveRepository
 		System.out.println("got position " + position + " for " + uid);
 
 		if (position < 0) {
-			throw new ComponentException(Authorization.BAD_REQUEST, "Item with " + uid + " not found");
+			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Item with " + uid + " not found");
 		}
 
 		return (int) (position);
@@ -402,62 +405,87 @@ public class MongoMessageArchiveRepository
 	public void queryItems(QueryCriteria query, ItemHandler<QueryCriteria, MAMRepository.Item> itemHandler)
 			throws TigaseDBException {
 		try {
-			Document crit = createCriteriaDocument(query);
-			List<Element> results = new ArrayList<Element>();
+			if (!query.getIds().isEmpty()) {
+				BareJID owner = query.getQuestionerJID().getBareJID();
+				byte[] oid = generateId(owner);
+				Document crit = new Document("owner_id", oid);
+				crit.append("stable_id", new Document("$in", query.getIds()
+						.stream()
+						.map(UUID::fromString)
+						.collect(Collectors.toList())));
 
-			int count = (int) msgsCollection.count(crit);
+				FindIterable<Document> cursor = msgsCollection.find(crit);
+				cursor = cursor.batchSize(batchSize);
+				query.getRsm().setIndex(0);
 
-			Integer after = getItemPosition(query.getRsm().getAfter(), query, crit);
-			Integer before = getItemPosition(query.getRsm().getBefore(), query, crit);
+				handleQueryItemsResult(query, crit, cursor, itemHandler);
+			} else {
+				Document crit = createCriteriaDocument(query);
+				int count = (int) msgsCollection.count(crit);
 
-			calculateOffsetAndPosition(query, count, before, after);
+				Range range = MAMUtil.rangeFromPositions(getItemPosition(query.getAfterId(), query, crit),
+														getItemPosition(query.getBeforeId(), query, crit));
 
-			FindIterable<Document> cursor = msgsCollection.find(crit);
-			if (query.getRsm().getIndex() > 0) {
-				cursor = cursor.skip(query.getRsm().getIndex());
-			}
-			cursor = cursor.batchSize(batchSize).limit(query.getRsm().getMax()).sort(new Document("ts", 1));
+				Integer afterPosRSM = getItemPosition(query.getRsm().getAfter(), query, crit);
+				Integer beforePosRSM = getItemPosition(query.getRsm().getBefore(), query, crit);
 
-			Iterator<Document> iter = cursor.iterator();
-			if (iter.hasNext()) {
-				int idx = query.getRsm().getIndex();
-				int i = 0;
-				Date startTimestamp = query.getStart();
-				DomBuilderHandler domHandler = new DomBuilderHandler();
-				while (iter.hasNext()) {
-					Item item = new Item();
-					item.owner = query.getQuestionerJID().getBareJID();
-					Document dto = iter.next();
-
-					String msgStr = (String) dto.get("msg");
-					item.timestamp = (Date) dto.get("ts");
-
-					item.with = (crit.containsKey("buddy")) ? null : (String) dto.get("buddy");
-					if (query.getUseMessageIdInRsm()) {
-						item.id = ((UUID) dto.get("stable_id")).toString();
-					}
-
-					parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
-
-					if (startTimestamp == null) {
-						startTimestamp = item.timestamp;
-					}
-
-					Queue<Element> queue = domHandler.getParsedElements();
-					Element msg = null;
-					while ((msg = queue.poll()) != null) {
-						if (!query.getUseMessageIdInRsm()) {
-							item.id = String.valueOf(idx + i);
-						}
-						item.messageEl = msg;
-						itemHandler.itemFound(query, item);
-					}
-					i++;
+				calculateOffsetAndPosition(query, count, beforePosRSM, afterPosRSM, range);
+				
+				FindIterable<Document> cursor = msgsCollection.find(crit);
+				if (query.getRsm().getIndex() > 0 || range.getLowerBound() > 0) {
+					cursor = cursor.skip(range.getLowerBound() + query.getRsm().getIndex());
 				}
-				query.setStart(startTimestamp);
+				cursor = cursor.batchSize(batchSize)
+						.limit(Math.min(range.size(), query.getRsm().getMax()))
+						.sort(new Document("ts", 1));
+
+				handleQueryItemsResult(query, crit, cursor, itemHandler);
 			}
 		} catch (Exception ex) {
 			throw new TigaseDBException("Cound not retrieve collections", ex);
+		}
+	}
+
+	private void handleQueryItemsResult(QueryCriteria query, Document crit, FindIterable<Document> cursor, MAMRepository.ItemHandler itemHandler) {
+		Iterator<Document> iter = cursor.iterator();
+		if (iter.hasNext()) {
+			int idx = query.getRsm().getIndex();
+			int i = 0;
+			Date startTimestamp = query.getStart();
+			DomBuilderHandler domHandler = new DomBuilderHandler();
+			while (iter.hasNext()) {
+				Item item = new Item();
+				item.owner = query.getQuestionerJID().getBareJID();
+				Document dto = iter.next();
+
+				String msgStr = (String) dto.get("msg");
+				item.timestamp = (Date) dto.get("ts");
+
+				item.with = (crit.containsKey("buddy")) ? null : (String) dto.get("buddy");
+				if (query.getUseMessageIdInRsm()) {
+					item.id = ((UUID) dto.get("stable_id")).toString();
+				}
+
+				parser.parse(domHandler, msgStr.toCharArray(), 0, msgStr.length());
+
+				if (startTimestamp == null) {
+					startTimestamp = item.timestamp;
+				}
+
+				Queue<Element> queue = domHandler.getParsedElements();
+				Element msg = null;
+				while ((msg = queue.poll()) != null) {
+					if (!query.getUseMessageIdInRsm()) {
+						item.id = String.valueOf(idx + i);
+					}
+					item.messageEl = msg;
+					itemHandler.itemFound(query, item);
+				}
+				i++;
+			}
+			if (query.getIds().isEmpty()) {
+				query.setStart(startTimestamp);
+			}
 		}
 	}
 
