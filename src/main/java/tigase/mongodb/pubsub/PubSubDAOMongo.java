@@ -46,6 +46,8 @@ import tigase.xml.Element;
 import tigase.xmpp.Authorization;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.mam.MAMRepository;
+import tigase.xmpp.mam.util.MAMUtil;
+import tigase.xmpp.mam.util.Range;
 import tigase.xmpp.rsm.RSM;
 
 import java.nio.charset.Charset;
@@ -553,17 +555,25 @@ public class PubSubDAOMongo
 				Bson filter = Filters.and(filters);
 				long count = mamCollection.count(filter);
 
+				Range range = MAMUtil.rangeFromPositions(
+						Optional.ofNullable(getMAMItemPosition(query.getAfterId(), filter))
+								.map(Long::intValue)
+								.orElse(null), Optional.ofNullable(getMAMItemPosition(query.getBeforeId(), filter))
+								.map(Long::intValue)
+								.orElse(null));
+				
 				Long after = getMAMItemPosition(query.getRsm().getAfter(), filter);
 				Long before = getMAMItemPosition(query.getRsm().getBefore(), filter);
 
-				calculateOffsetAndPosition(query.getRsm(), (int) count, before == null ? null : before.intValue(),
-										   after == null ? null : after.intValue());
+				MAMUtil.calculateOffsetAndPosition(query.getRsm(), (int) count,
+												   before == null ? null : before.intValue(),
+												   after == null ? null : after.intValue(), range);
 
 				Document order = new Document(timestampField, 1);
 				FindIterable<Document> cursor = mamCollection.find(filter)
 						.sort(order)
-						.skip(query.getRsm().getIndex())
-						.limit(query.getRsm().getMax());
+						.skip(range.getLowerBound() + query.getRsm().getIndex())
+						.limit(Math.min(range.size(), query.getRsm().getMax()));
 				for (Document dto : cursor) {
 					UUID uuid = (UUID) dto.get("uuid");
 					Date ts = dto.getDate("ts");
