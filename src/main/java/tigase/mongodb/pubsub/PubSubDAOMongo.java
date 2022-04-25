@@ -35,7 +35,7 @@ import tigase.kernel.beans.config.ConfigField;
 import tigase.mongodb.MongoDataSource;
 import tigase.mongodb.MongoRepositoryVersionAware;
 import tigase.pubsub.*;
-import tigase.pubsub.modules.mam.Query;
+import tigase.pubsub.modules.mam.ExtendedQueryImpl;
 import tigase.pubsub.repository.*;
 import tigase.pubsub.repository.stateless.NodeMeta;
 import tigase.pubsub.repository.stateless.UsersAffiliation;
@@ -46,12 +46,15 @@ import tigase.xml.Element;
 import tigase.xmpp.Authorization;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.mam.MAMRepository;
+import tigase.xmpp.mam.util.MAMUtil;
+import tigase.xmpp.mam.util.Range;
 import tigase.xmpp.rsm.RSM;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.mongodb.client.model.Projections.include;
 import static tigase.mongodb.Helper.collectionExists;
@@ -64,7 +67,7 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
 @Repository.SchemaId(id = Schema.PUBSUB_SCHEMA_ID, name = Schema.PUBSUB_SCHEMA_NAME, external = false)
 @RepositoryVersionAware.SchemaVersion
 public class PubSubDAOMongo
-		extends PubSubDAO<ObjectId, MongoDataSource, tigase.pubsub.modules.mam.Query>
+		extends PubSubDAO<ObjectId, MongoDataSource, tigase.pubsub.modules.mam.ExtendedQueryImpl>
 		implements MongoRepositoryVersionAware {
 
 	public static final String PUBSUB_AFFILIATIONS = "tig_pubsub_affiliations";
@@ -521,40 +524,63 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public void queryItems(Query query, ObjectId nodeId,
-	                       MAMRepository.ItemHandler<Query, IPubSubRepository.Item> itemHandler)
+	public void queryItems(ExtendedQueryImpl query, ObjectId nodeId,
+						   MAMRepository.ItemHandler<ExtendedQueryImpl, IPubSubRepository.Item> itemHandler)
 			throws RepositoryException {
 		try {
 			List<Bson> filters = new ArrayList<>();
 			filters.add(Filters.eq("node_id", nodeId));
-			String timestampField = "ts";
-			if (query.getStart() != null) {
-				filters.add(Filters.gte(timestampField, query.getStart()));
-			}
-			if (query.getEnd() != null) {
-				filters.add(Filters.lte(timestampField, query.getEnd()));
-			}
+			if (!query.getIds().isEmpty()) {
+				filters.add(Filters.in("uuid", query.getIds()
+						.stream()
+						.map(UUID::fromString)
+						.collect(Collectors.toList())));
+				FindIterable<Document> cursor = mamCollection.find(Filters.and(filters));
+				for (Document dto : cursor) {
+					UUID uuid = (UUID) dto.get("uuid");
+					Date ts = dto.getDate("ts");
+					Element itemEl = itemDataToElement(dto.getString("data"));
 
-			Bson filter = Filters.and(filters);
-			long count = mamCollection.count(filter);
+					itemHandler.itemFound(query, new MAMItem(uuid.toString(),  ts, itemEl));
+				}
+			} else {
+				String timestampField = "ts";
+				if (query.getStart() != null) {
+					filters.add(Filters.gte(timestampField, query.getStart()));
+				}
+				if (query.getEnd() != null) {
+					filters.add(Filters.lte(timestampField, query.getEnd()));
+				}
 
-			Long after = getMAMItemPosition(query.getRsm().getAfter(), filter);
-			Long before = getMAMItemPosition(query.getRsm().getBefore(), filter);
+				Bson filter = Filters.and(filters);
+				long count = mamCollection.count(filter);
 
-			calculateOffsetAndPosition(query.getRsm(), (int) count, before == null ? null : before.intValue(),
-			                           after == null ? null : after.intValue());
-			
-			Document order = new Document(timestampField, 1);
-			FindIterable<Document> cursor = mamCollection.find(filter)
-					.sort(order)
-					.skip(query.getRsm().getIndex())
-					.limit(query.getRsm().getMax());
-			for (Document dto : cursor) {
-				UUID uuid = (UUID) dto.get("uuid");
-				Date ts = dto.getDate("ts");
-				Element itemEl = itemDataToElement(dto.getString("data"));
+				Range range = MAMUtil.rangeFromPositions(
+						Optional.ofNullable(getMAMItemPosition(query.getAfterId(), filter))
+								.map(Long::intValue)
+								.orElse(null), Optional.ofNullable(getMAMItemPosition(query.getBeforeId(), filter))
+								.map(Long::intValue)
+								.orElse(null));
+				
+				Long after = getMAMItemPosition(query.getRsm().getAfter(), filter);
+				Long before = getMAMItemPosition(query.getRsm().getBefore(), filter);
 
-				itemHandler.itemFound(query, new MAMItem(uuid.toString(),  ts, itemEl));
+				MAMUtil.calculateOffsetAndPosition(query.getRsm(), (int) count,
+												   before == null ? null : before.intValue(),
+												   after == null ? null : after.intValue(), range);
+
+				Document order = new Document(timestampField, 1);
+				FindIterable<Document> cursor = mamCollection.find(filter)
+						.sort(order)
+						.skip(range.getLowerBound() + query.getRsm().getIndex())
+						.limit(Math.min(range.size(), query.getRsm().getMax()));
+				for (Document dto : cursor) {
+					UUID uuid = (UUID) dto.get("uuid");
+					Date ts = dto.getDate("ts");
+					Element itemEl = itemDataToElement(dto.getString("data"));
+
+					itemHandler.itemFound(query, new MAMItem(uuid.toString(),  ts, itemEl));
+				}
 			}
 		} catch (Exception ex) {
 			throw new RepositoryException(ex);
