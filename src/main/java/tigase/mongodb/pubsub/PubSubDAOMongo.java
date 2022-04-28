@@ -524,6 +524,11 @@ public class PubSubDAOMongo
 	}
 
 	@Override
+	public ExtendedQueryImpl newQuery(BareJID serviceJid) {
+		return new ExtendedQueryImpl();
+	}
+	
+	@Override
 	public void queryItems(ExtendedQueryImpl query, ObjectId nodeId,
 						   MAMRepository.ItemHandler<ExtendedQueryImpl, IPubSubRepository.Item> itemHandler)
 			throws RepositoryException {

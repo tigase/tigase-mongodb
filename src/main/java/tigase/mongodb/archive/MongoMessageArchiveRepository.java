@@ -415,7 +415,7 @@ public class MongoMessageArchiveRepository
 						.collect(Collectors.toList())));
 
 				FindIterable<Document> cursor = msgsCollection.find(crit);
-				cursor = cursor.batchSize(batchSize);
+				cursor = cursor.batchSize(batchSize).sort(new Document("ts", 1));
 				query.getRsm().setIndex(0);
 
 				handleQueryItemsResult(query, crit, cursor, itemHandler);
