@@ -290,7 +290,7 @@ public class MongoMsgRepository
 				Element msg = elems.poll();
 
 				if (msg == null) {
-					log.log(Level.INFO,
+					log.log(Level.CONFIG,
 					        "Something wrong, loaded offline message from DB but parsed no " + "XML elements: {0}",
 					        msg_str);
 				} else {
@@ -335,7 +335,7 @@ public class MongoMsgRepository
 				Element msg = elems.poll();
 
 				if (msg == null) {
-					log.log(Level.INFO,
+					log.log(Level.CONFIG,
 					        "Something wrong, loaded offline message from DB but parsed no " + "XML elements: {0}",
 					        msg_str);
 				} else {
