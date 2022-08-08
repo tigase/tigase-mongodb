@@ -70,7 +70,7 @@ public class MongoDualIPRepository
 			log.log(Level.WARNING, "Problem getting elements from DB: ", ex);
 		}
 
-		log.info("Loaded " + result.size() + " redirect definitions from database.");
+		log.log(Level.FINE, "Loaded " + result.size() + " redirect definitions from database.");
 		return result;
 
 	}
