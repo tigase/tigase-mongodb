@@ -41,6 +41,7 @@ import tigase.xmpp.jid.BareJID;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -379,6 +380,12 @@ public class MongoRepository
 		} catch (MongoException ex) {
 			throw new TigaseDBException("Error getting list of credentialIds for user " + user + ": ", ex);
 		}
+	}
+
+	@Override
+	public long getActiveUsersCountIn(Duration duration) {
+		// we don't update last-activity when we log-in user in MongoDB repository so it's impossible to get the info
+		return -1;
 	}
 
 	/**
