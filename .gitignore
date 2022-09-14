@@ -7,3 +7,5 @@ target
 /nbactions.xml
 /tigase-mongodb.iml
 dist
+
+src/main/restructured/_build/
