@@ -10,6 +10,7 @@ build:
   os: ubuntu-20.04
   tools:
     python: "3.10"
+
     # You can also specify other tool versions:
     # nodejs: "16"
     # rust: "1.55"
@@ -18,3 +19,9 @@ build:
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
    configuration: conf.py
+
+   
+# Optionally declare the Python requirements required to build your docs
+python:
+   install:
+   - requirements: requirements.txt
