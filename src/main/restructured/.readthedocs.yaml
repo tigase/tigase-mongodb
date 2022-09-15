@@ -30,5 +30,8 @@ python:
     - method: pip
       path: package
     - requirements: requirements.txt
-
+sphinx:
+  builder: html
+  configuration: conf.py
+  fail_on_warning: true
    
