@@ -21,7 +21,7 @@ sphinx:
   configuration: src/main/restructured/conf.py
 
 python:
-  version: "3.10"
+  version: "3.10.4"
   install:
     - method: pip
       path: .
