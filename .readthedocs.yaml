@@ -21,17 +21,5 @@ sphinx:
   configuration: src/main/restructured/conf.py
 
 python:
-  version: "3.10.4"
   install:
-    - method: pip
-      path: .
-      extra_requirements:
-        - restructured
-    - method: pip
-      path: package
     - requirements: src/main/restructured/requirements.txt
-sphinx:
-  builder: html
-  configuration: conf.py
-  fail_on_warning: true
-   
