@@ -1,5 +1,5 @@
-Javadoc
-=======
+Tigase MongoDB 2.3.0-SNAPSHOT API
+==================================
 
 .. toctree::
    :maxdepth: 2
