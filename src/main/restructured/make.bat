@@ -1,6 +1,6 @@
 @REM
-@REM Tigase XMPP Server - The instant messaging server
-@REM Copyright (C) 2004 Tigase, Inc. (office@tigase.com)
+@REM Tigase MongoDB - Tigase MongoDB support library
+@REM Copyright (C) 2014 Tigase, Inc. (office@tigase.com)
 @REM
 @REM This program is free software: you can redistribute it and/or modify
 @REM it under the terms of the GNU Affero General Public License as published by

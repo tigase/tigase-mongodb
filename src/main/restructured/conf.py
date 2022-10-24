@@ -1,6 +1,6 @@
 #
-# Tigase XMPP Server - The instant messaging server
-# Copyright (C) 2004 Tigase, Inc. (office@tigase.com)
+# Tigase MongoDB - Tigase MongoDB support library
+# Copyright (C) 2014 Tigase, Inc. (office@tigase.com)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
