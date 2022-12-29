@@ -184,7 +184,7 @@ public class MongoMsgRepository
 			Document crit = new Document("to_hash", toHash);
 
 			for (MSG_TYPES type : MSG_TYPES.values()) {
-				long count = msgHistoryCollection.count(crit.append("msg_type", type.toString()));
+				long count = msgHistoryCollection.countDocuments(crit.append("msg_type", type.toString()));
 				if (count > 0) {
 					result.put(type, count);
 				}
@@ -485,7 +485,7 @@ public class MongoMsgRepository
 					.append("from", from.getBareJID().toString())
 					.append("to", to.getBareJID().toString());
 
-			long count = msgHistoryCollection.count(crit);
+			long count = msgHistoryCollection.countDocuments(crit);
 			long msgs_store_limit = getMsgsStoreLimit(to.getBareJID(), userRepo);
 			if (msgs_store_limit <= count) {
 				if (log.isLoggable(Level.FINEST)) {

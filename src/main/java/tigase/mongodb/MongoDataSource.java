@@ -17,9 +17,10 @@
  */
 package tigase.mongodb;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
 import com.mongodb.MongoException;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import tigase.db.DBInitException;
@@ -104,8 +105,9 @@ public class MongoDataSource
 	@Override
 	public void initialize(String resource_uri) throws DBInitException {
 		resourceUri = resource_uri;
-		MongoClientURI uri = new MongoClientURI(resource_uri);
-		mongo = new MongoClient(uri);
-		db = mongo.getDatabase(uri.getDatabase());
+		ConnectionString connectionString = new ConnectionString(resource_uri);
+		mongo = MongoClients.create(connectionString);
+		db = mongo.getDatabase(connectionString.getDatabase());
+		System.out.println("got database: " + db.getName());
 	}
 }

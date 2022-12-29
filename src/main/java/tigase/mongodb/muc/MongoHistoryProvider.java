@@ -204,7 +204,7 @@ public class MongoHistoryProvider
 		try {
 			Date ts = new Date(Long.parseLong(msgId));
 
-			return historyCollection.count(Filters.and(filter, Filters.lt("timestamp", ts)));
+			return historyCollection.countDocuments(Filters.and(filter, Filters.lt("timestamp", ts)));
 		} catch (NumberFormatException ex) {
 			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Not found message with id = " + msgId);
 		}
@@ -239,7 +239,7 @@ public class MongoHistoryProvider
 			}
 
 			Bson filter = Filters.and(filters);
-			long count = historyCollection.count(filter);
+			long count = historyCollection.countDocuments(filter);
 
 			Long after = getItemPosition(query.getRsm().getAfter(), filter);
 			Long before = getItemPosition(query.getRsm().getBefore(), filter);

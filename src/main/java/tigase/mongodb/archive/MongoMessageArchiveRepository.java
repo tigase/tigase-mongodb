@@ -268,7 +268,7 @@ public class MongoMessageArchiveRepository
 		Document positionCrit = new Document(crit);
 		positionCrit.append("ts", new Document("$lt", ts));
 
-		long position = msgsCollection.count(positionCrit);
+		long position = msgsCollection.countDocuments(positionCrit);
 
 		System.out.println("got position " + position + " for " + uid);
 
@@ -294,7 +294,7 @@ public class MongoMessageArchiveRepository
 			pipeline.add(new Document("$group", new Document("_id", "$tags")));
 			pipeline.add(new Document("$group", new Document("_id", 1).append("count", new Document("$sum", 1))));
 
-			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true);
+			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true);
 			Document countDoc = cursor.first();
 			int count = countDoc != null ? countDoc.getInteger("count") : null;
 
@@ -310,7 +310,7 @@ public class MongoMessageArchiveRepository
 					pipeline.add(new Document("$skip", criteria.getRsm().getIndex()));
 				}
 				pipeline.add(new Document("$limit", criteria.getRsm().getMax()));
-				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
+				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).batchSize(batchSize);
 				for (Document dto : cursor) {
 					results.add((String) dto.get("_id"));
 				}
@@ -349,7 +349,7 @@ public class MongoMessageArchiveRepository
 			Bson countCrit = group(1, sum("count", 1));
 			pipeline.add(countCrit);
 
-			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true);
+			AggregateIterable<Document> cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true);
 			Document countDoc = cursor.first();
 			int count = (countDoc != null) ? countDoc.getInteger("count") : 0;
 
@@ -371,7 +371,7 @@ public class MongoMessageArchiveRepository
 				}
 				pipeline.add(limit(query.getRsm().getMax()));
 
-				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).useCursor(true).batchSize(batchSize);
+				cursor = msgsCollection.aggregate(pipeline).allowDiskUse(true).batchSize(batchSize);
 
 				for (Document dto : cursor) {
 					String buddy = (String) dto.get("buddy");
@@ -421,7 +421,7 @@ public class MongoMessageArchiveRepository
 				handleQueryItemsResult(query, crit, cursor, itemHandler);
 			} else {
 				Document crit = createCriteriaDocument(query);
-				int count = (int) msgsCollection.count(crit);
+				int count = (int) msgsCollection.countDocuments(crit);
 
 				Range range = MAMUtil.rangeFromPositions(getItemPosition(query.getAfterId(), query, crit),
 														getItemPosition(query.getBeforeId(), query, crit));

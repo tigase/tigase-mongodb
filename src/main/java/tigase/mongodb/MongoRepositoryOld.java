@@ -340,7 +340,7 @@ public class MongoRepositoryOld
 	@Override
 	public long getUsersCount() {
 		try {
-			return usersCollection.count(new Document());
+			return usersCollection.countDocuments();
 		} catch (MongoException ex) {
 			return -1;
 		}
@@ -352,7 +352,7 @@ public class MongoRepositoryOld
 			Document crit = new Document();
 			// we can check domain field if we would use it or USER_ID field
 			crit.append(DOMAIN_KEY, domain.toLowerCase());
-			return usersCollection.count(crit);
+			return usersCollection.countDocuments(crit);
 		} catch (MongoException ex) {
 			return -1;
 		}
@@ -636,7 +636,7 @@ public class MongoRepositoryOld
 			BasicDBObject userDto = new BasicDBObject();
 			byte[] id = generateId(user);
 			userDto.append("_id", id);
-			return usersCollection.count(userDto) > 0;
+			return usersCollection.countDocuments(userDto) > 0;
 		} catch (Exception e) {
 			return false;
 		}

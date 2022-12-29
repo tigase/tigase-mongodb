@@ -19,10 +19,11 @@ package tigase.mongodb.archive;
 
 import com.mongodb.client.MongoCollection;
 import org.bson.Document;
-import org.junit.Assert;
-import org.junit.FixMethodOrder;
-import org.junit.Test;
+import org.junit.*;
+import org.junit.rules.TestRule;
+import org.junit.runner.Description;
 import org.junit.runners.MethodSorters;
+import org.junit.runners.model.Statement;
 import tigase.archive.QueryCriteria;
 import tigase.archive.db.MessageArchiveRepository;
 import tigase.component.exceptions.RepositoryException;
@@ -49,6 +50,24 @@ import java.util.Optional;
 public class MongoMessageArchiveRepositoryTest
 		extends tigase.archive.db.AbstractMessageArchiveRepositoryTest<MongoDataSource,MessageArchiveRepository<QueryCriteria,MongoDataSource>> {
 
+	protected static String uri = System.getProperty("testDbUri");
+
+	@ClassRule
+	public static TestRule rule = new TestRule() {
+		@Override
+		public Statement apply(Statement stmnt, Description d) {
+			if (uri == null) {
+				return new Statement() {
+					@Override
+					public void evaluate() throws Throwable {
+						Assume.assumeTrue("Ignored due to not passed DB URI!", false);
+					}
+				};
+			}
+			return stmnt;
+		}
+	};
+	
 	private byte[] generateId(String in) throws RepositoryException {
 		try {
 			MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -59,7 +78,7 @@ public class MongoMessageArchiveRepositoryTest
 	}
 
 	private MongoCollection<Document> getCollection(String name) {
-		return ((MongoDataSource) dataSource).getDatabase().getCollection(name);
+		return getDataSource().getDatabase().getCollection(name);
 	}
 
 	@Test

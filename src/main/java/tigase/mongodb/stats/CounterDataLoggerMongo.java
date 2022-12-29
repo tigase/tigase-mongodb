@@ -18,17 +18,12 @@
 package tigase.mongodb.stats;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import tigase.component.exceptions.RepositoryException;
-import tigase.db.DBInitException;
-import tigase.db.DataSource;
 import tigase.db.Repository;
 import tigase.mongodb.MongoDataSource;
-import tigase.stats.CounterDataLogger;
 import tigase.stats.db.CounterDataLoggerRepositoryIfc;
 
 import java.util.Date;

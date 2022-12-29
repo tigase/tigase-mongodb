@@ -20,9 +20,14 @@ package tigase.mongodb.pubsub;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import org.bson.types.ObjectId;
+import org.junit.Assume;
+import org.junit.ClassRule;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
+import org.junit.rules.TestRule;
+import org.junit.runner.Description;
 import org.junit.runners.MethodSorters;
+import org.junit.runners.model.Statement;
 import tigase.component.exceptions.RepositoryException;
 import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.MongoDataSource;
@@ -49,6 +54,24 @@ import static org.junit.Assert.*;
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class PubSubDAOMongoTest
 		extends AbstractPubSubDAOTest<MongoDataSource> {
+
+	protected static String uri = System.getProperty("testDbUri");
+
+	@ClassRule
+	public static TestRule rule = new TestRule() {
+		@Override
+		public Statement apply(Statement stmnt, Description d) {
+			if (uri == null) {
+				return new Statement() {
+					@Override
+					public void evaluate() throws Throwable {
+						Assume.assumeTrue("Ignored due to not passed DB URI!", false);
+					}
+				};
+			}
+			return stmnt;
+		}
+	};
 
 	private byte[] generateId(String in) throws RepositoryException {
 		try {

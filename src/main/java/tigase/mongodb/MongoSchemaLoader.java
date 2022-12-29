@@ -17,9 +17,10 @@
  */
 package tigase.mongodb;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
 import com.mongodb.MongoException;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
@@ -98,8 +99,8 @@ public class MongoSchemaLoader
 			MongoDatabase db = client.getDatabase(params.getDbName());
 			if (db != null) {
 				db.runCommand(new Document().append("dropUser", params.getDbUser()));
+				db.drop();
 			}
-			client.dropDatabase(params.getDbName());
 			return Result.ok;
 		} catch (MongoException ex) {
 			if (ex.getCode() == 11) {
@@ -391,7 +392,7 @@ public class MongoSchemaLoader
 	public Result validateDBConnection() {
 		try {
 			String uri = getDBUri(true);
-			client = new MongoClient(new MongoClientURI(uri));
+			client = MongoClients.create(uri);
 			client.listDatabaseNames().iterator().hasNext();
 			return Result.ok;
 		} catch (MongoException ex) {
@@ -570,18 +571,18 @@ public class MongoSchemaLoader
 
 		@Override
 		public void parseUri(String uri) {
-			MongoClientURI clientUri = new MongoClientURI(uri);
+			ConnectionString connectionString = new ConnectionString(uri);
 
-			dbUser = clientUri.getUsername();
-			if (clientUri.getPassword() != null) {
-				dbPass = new String(clientUri.getPassword());
+			dbUser = connectionString.getUsername();
+			if (connectionString.getPassword() != null) {
+				dbPass = new String(connectionString.getPassword());
 			} else {
 				dbPass = null;
 			}
 
-			dbHostname = clientUri.getHosts().stream().collect(Collectors.joining(","));
-			dbName = clientUri.getDatabase();
-			useSSL = clientUri.getOptions().isSslEnabled();
+			dbHostname = connectionString.getHosts().stream().collect(Collectors.joining(","));
+			dbName = connectionString.getDatabase();
+			useSSL = Optional.ofNullable(connectionString.getSslEnabled()).orElse(false);
 			int idx = uri.indexOf(dbName + "?");
 			if (idx > 0) {
 				dbOptions = uri.substring(idx + dbName.length() + 1);

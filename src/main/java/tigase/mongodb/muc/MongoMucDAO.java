@@ -17,7 +17,6 @@
  */
 package tigase.mongodb.muc;
 
-import com.mongodb.Block;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
@@ -131,7 +130,7 @@ public class MongoMucDAO
 			byte[] roomId = room.getId();
 			roomAffilaitionsCollection.find(eq("room_id", roomId))
 					.projection(include("jid", "affiliation", "persistent", "nickname"))
-					.forEach((Block<? super Document>) (Document doc) -> {
+					.forEach((Document doc) -> {
 						try {
 							BareJID jid = BareJID.bareJIDInstance(doc.getString("jid"));
 							Affiliation affiliation = Affiliation.valueOf(doc.getString("affiliation"));

@@ -181,7 +181,7 @@ public class PubSubDAOMongo
 	private void ensureServiceJid(BareJID serviceJid, boolean autoCreate) throws RepositoryException {
 		try {
 			byte[] id = generateId(serviceJid);
-			if (serviceJidsCollection.count(Filters.and(Filters.eq("_id", id), Filters.eq("service_jid", serviceJid.toString()))) == 0) {
+			if (serviceJidsCollection.countDocuments(Filters.and(Filters.eq("_id", id), Filters.eq("service_jid", serviceJid.toString()))) == 0) {
 				// no service jid
 				if (autoCreate) {
 					this.createService(serviceJid, false);
@@ -247,7 +247,7 @@ public class PubSubDAOMongo
 			}
 
 			Bson filter = Filters.and(filters);
-			long count = itemsCollecton.count(filter);
+			long count = itemsCollecton.countDocuments(filter);
 
 			Long after = getItemPosition(rsm.getAfter(), filter, timestampField);
 			Long before = getItemPosition(rsm.getBefore(), filter, timestampField);
@@ -293,7 +293,7 @@ public class PubSubDAOMongo
 		}
 		Date ts = doc.getDate(timestampField);
 
-		return itemsCollecton.count(Filters.and(filter, Filters.lt(timestampField, ts)));
+		return itemsCollecton.countDocuments(Filters.and(filter, Filters.lt(timestampField, ts)));
 	}
 
 	private Long getMAMItemPosition(String msgId, Bson filter) throws ComponentException {
@@ -310,7 +310,7 @@ public class PubSubDAOMongo
 		}
 		Date ts = doc.getDate("ts");
 
-		return mamCollection.count(Filters.and(filter, Filters.lt("ts", ts)));
+		return mamCollection.countDocuments(Filters.and(filter, Filters.lt("ts", ts)));
 	}
 	
 	@Override
@@ -432,9 +432,9 @@ public class PubSubDAOMongo
 	public long getNodesCount(BareJID serviceJid) throws RepositoryException {
 		try {
 			if (serviceJid == null) {
-				return nodesCollection.count();
+				return nodesCollection.countDocuments();
 			} else {
-				return nodesCollection.count(createCrit(serviceJid, null));
+				return nodesCollection.countDocuments(createCrit(serviceJid, null));
 			}
 		} catch (MongoException ex) {
 			throw new RepositoryException("Could not count nodes", ex);
@@ -558,7 +558,7 @@ public class PubSubDAOMongo
 				}
 
 				Bson filter = Filters.and(filters);
-				long count = mamCollection.count(filter);
+				long count = mamCollection.countDocuments(filter);
 
 				Range range = MAMUtil.rangeFromPositions(
 						Optional.ofNullable(getMAMItemPosition(query.getAfterId(), filter))
