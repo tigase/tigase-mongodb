@@ -108,6 +108,5 @@ public class MongoDataSource
 		ConnectionString connectionString = new ConnectionString(resource_uri);
 		mongo = MongoClients.create(connectionString);
 		db = mongo.getDatabase(connectionString.getDatabase());
-		System.out.println("got database: " + db.getName());
 	}
 }
