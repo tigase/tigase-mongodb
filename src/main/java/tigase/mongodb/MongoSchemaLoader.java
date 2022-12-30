@@ -55,7 +55,7 @@ public class MongoSchemaLoader
 	protected static final String SCHEMA_VERSION = "tig_schema_versions";
 	private static final Logger log = Logger.getLogger(MongoSchemaLoader.class.getCanonicalName());
 	private static final List<TypeInfo> supportedTypes = Stream.of(
-			new TypeInfo(50, "mongodb", "MongoDB", "com.mongodb.client.MongoClient")
+			new TypeInfo(50, "mongodb", "MongoDB", MongoClient.class.getCanonicalName())
 	).collect(Collectors.toList());
 
 	private MongoClient client;
