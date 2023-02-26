@@ -22,11 +22,15 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.Updates;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
+import tigase.annotations.TigaseDeprecated;
 import tigase.component.PacketWriter;
 import tigase.component.exceptions.ComponentException;
+import tigase.component.exceptions.RepositoryException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.db.util.RepositoryVersionAware;
@@ -38,6 +42,7 @@ import tigase.muc.Affiliation;
 import tigase.muc.Room;
 import tigase.muc.RoomConfig;
 import tigase.muc.history.AbstractHistoryProvider;
+import tigase.muc.history.ExtendedMAMRepository;
 import tigase.muc.repository.Schema;
 import tigase.server.Packet;
 import tigase.util.Version;
@@ -46,7 +51,6 @@ import tigase.xml.Element;
 import tigase.xmpp.Authorization;
 import tigase.xmpp.jid.BareJID;
 import tigase.xmpp.jid.JID;
-import tigase.xmpp.mam.MAMRepository;
 import tigase.xmpp.mam.Query;
 import tigase.xmpp.mam.QueryImpl;
 
@@ -68,7 +72,7 @@ import static tigase.mongodb.Helper.collectionExists;
 @RepositoryVersionAware.SchemaVersion
 public class MongoHistoryProvider
 		extends AbstractHistoryProvider<MongoDataSource>
-		implements MongoRepositoryVersionAware, MAMRepository {
+		implements MongoRepositoryVersionAware, ExtendedMAMRepository {
 
 	private static final int DEF_BATCH_SIZE = 100;
 	private static final String HASH_ALG = "SHA-256";
@@ -88,14 +92,22 @@ public class MongoHistoryProvider
 	public void addLeaveEvent(Room room, Date date, JID senderJID, String nickName) {
 	}
 
+	@TigaseDeprecated(removeIn = "3.0.0", note = "Use method with `stableId`", since = "2.4.0")
+	@Deprecated
 	@Override
 	public void addMessage(Room room, Element message, String body, JID senderJid, String senderNickname, Date time) {
+		addMessage(room, message, body, senderJid, senderNickname, time, UUID.randomUUID().toString());
+	}
+	
+	@Override
+	public void addMessage(Room room, Element message, String body, JID senderJid, String senderNickname, Date time, String stableId) {
 		try {
 			byte[] rid = generateId(room.getRoomJID());
 			Document dto = new Document("room_jid_id", rid).append("room_jid", room.getRoomJID().toString())
 					.append("event_type", 1)
 					.append("sender_jid", senderJid.toString())
 					.append("sender_nickname", senderNickname)
+					.append("stable_id", UUID.fromString(stableId))
 					.append("body", body)
 					.append("public_event", room.getConfig().isLoggingEnabled());
 			if (time != null) {
@@ -116,6 +128,57 @@ public class MongoHistoryProvider
 	                             Date time) {
 	}
 
+	@Override
+	public Item getItem(BareJID owner, String stableId) throws RepositoryException {
+		try {
+			byte[] rid = generateId(owner);
+			Document result = historyCollection.find(
+							Filters.and(Filters.eq("room_jid_id", rid), Filters.eq("stable_id", UUID.fromString(stableId))))
+					.projection(Projections.include("msg", "timestamp"))
+					.first();
+			if (result == null) {
+				return null;
+			}
+
+			String msgStr = result.getString("msg");
+			Element msg = parseMessage(msgStr);
+			Date timestamp = result.getDate("timestamp");
+
+			return new Item() {
+				@Override
+				public String getId() {
+					return stableId;
+				}
+
+				@Override
+				public Element getMessage() {
+					return msg;
+				}
+
+				@Override
+				public Date getTimestamp() {
+					return timestamp;
+				}
+			};
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Can't retrieve MUC message to database", ex);
+			throw new RuntimeException(ex);
+		}
+	}
+
+	@Override
+	public void updateMessage(BareJID owner, String stableId, Element msg, String body) throws RepositoryException {
+		try {
+			byte[] rid = generateId(owner);
+			historyCollection.updateOne(
+							Filters.and(Filters.eq("room_jid_id", rid), Filters.eq("stable_id", UUID.fromString(stableId))),
+							Updates.combine(Updates.set("body", body), Updates.set("msg", msg.toString())));
+		} catch (Exception ex) {
+			log.log(Level.WARNING, "Can't update MUC message in database", ex);
+			throw new RuntimeException(ex);
+		}
+	}
+
 	protected byte[] calculateHash(String user) throws TigaseDBException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(HASH_ALG);
@@ -132,8 +195,9 @@ public class MongoHistoryProvider
 		String body = (String) dto.get("body");
 		String sender_jid = (String) dto.get("sender_jid");
 		Date timestamp = (Date) dto.get("timestamp");
+		UUID stableId = (UUID) dto.get("stable_id");
 
-		return createMessage(roomJid, senderJID, sender_nickname, msg, body, sender_jid, addRealJids, timestamp);
+		return createMessage(roomJid, senderJID, sender_nickname, msg, body, sender_jid, addRealJids, timestamp, stableId.toString());
 	}
 
 	@Override
@@ -202,9 +266,14 @@ public class MongoHistoryProvider
 			return null;
 		}
 		try {
-			Date ts = new Date(Long.parseLong(msgId));
+			Document dto = historyCollection.find(Filters.and(filter, Filters.eq("stable_id", UUID.fromString(msgId))))
+					.projection(Projections.include("timestamp"))
+					.first();
+			if (dto == null) {
+				return null;
+			}
 
-			return historyCollection.countDocuments(Filters.and(filter, Filters.lt("timestamp", ts)));
+			return historyCollection.countDocuments(Filters.and(filter, Filters.lt("timestamp", dto.getDate("timestamp"))));
 		} catch (NumberFormatException ex) {
 			throw new ComponentException(Authorization.ITEM_NOT_FOUND, "Not found message with id = " + msgId);
 		}
@@ -258,13 +327,14 @@ public class MongoHistoryProvider
 				String msg = (String) dto.get("msg");
 				String body = (String) dto.get("body");
 				Date timestamp = (Date) dto.get("timestamp");
+				UUID stableId = (UUID) dto.get("stable_id");
 
 				Element msgEl = createMessageElement(query.getComponentJID().getBareJID(), query.getQuestionerJID(),
-				                                     sender_nickname, msg, body);
+				                                     sender_nickname, msg, body, stableId.toString());
 				Item item = new Item() {
 					@Override
 					public String getId() {
-						return String.valueOf(timestamp.getTime());
+						return stableId.toString();
 					}
 
 					@Override
@@ -318,6 +388,7 @@ public class MongoHistoryProvider
 
 		historyCollection.createIndex(new Document("room_jid_id", 1));
 		historyCollection.createIndex(new Document("room_jid_id", 1).append("timestamp", 1));
+		historyCollection.createIndex(new Document("room_jid_id", 1).append("stable_id", 1));
 	}
 
 	@Override
@@ -335,6 +406,11 @@ public class MongoHistoryProvider
 
 			historyCollection.updateMany(new Document("room_jid_id", oldRoomJidId),
 			                             new Document("$set", new Document("room_jid_id", newRoomJidId)));
+		}
+		for (Document doc : historyCollection.find(Filters.exists("stable_id", false))
+				.projection(Projections.include("_id"))
+				.batchSize(100)) {
+			historyCollection.updateOne(Filters.eq("_id", doc.getObjectId("_id")), Updates.set("stable_id", UUID.randomUUID()));
 		}
 		return SchemaLoader.Result.ok;
 	}
