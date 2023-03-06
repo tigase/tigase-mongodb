@@ -68,7 +68,7 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
 @RepositoryVersionAware.SchemaVersion
 public class PubSubDAOMongo
 		extends PubSubDAO<ObjectId, MongoDataSource, tigase.pubsub.modules.mam.ExtendedQueryImpl>
-		implements MongoRepositoryVersionAware {
+		implements MongoRepositoryVersionAware, IExtendedPubSubDAO<ObjectId, MongoDataSource, tigase.pubsub.modules.mam.ExtendedQueryImpl> {
 
 	public static final String PUBSUB_AFFILIATIONS = "tig_pubsub_affiliations";
 	public static final String PUBSUB_ITEMS = "tig_pubsub_items";
@@ -91,7 +91,29 @@ public class PubSubDAOMongo
 
 	public PubSubDAOMongo() {
 	}
-	
+
+	@Override
+	public MAMRepository.Item getMAMItem(BareJID serviceJid, ObjectId nodeId, String stableId) throws RepositoryException {
+		FindIterable<Document> cursor = mamCollection.find(
+				Filters.and(Filters.eq("node_id", nodeId), Filters.eq("uuid", UUID.fromString(stableId))));
+		for (Document dto : cursor) {
+			UUID uuid = (UUID) dto.get("uuid");
+			Date ts = dto.getDate("ts");
+			Element itemEl = itemDataToElement(dto.getString("data"));
+
+			return new MAMItem(uuid.toString(),  ts, itemEl);
+		}
+		return null;
+	}
+
+	@Override
+	public void updateMAMItem(BareJID serviceJid, ObjectId nodeId, String stableId, Element element)
+			throws RepositoryException {
+		mamCollection.updateOne(
+				Filters.and(Filters.eq("node_id", nodeId), Filters.eq("uuid", UUID.fromString(stableId))),
+				Updates.set("data", element.toString()));
+	}
+
 	private byte[] calculateHash(String in) throws RepositoryException {
 		try {
 			MessageDigest md = MessageDigest.getInstance(JID_HASH_ALG);
