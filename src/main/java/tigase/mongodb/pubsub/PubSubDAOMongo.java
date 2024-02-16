@@ -533,11 +533,11 @@ public class PubSubDAOMongo
 	}
 
 	@Override
-	public void addMAMItem(BareJID serviceJid, ObjectId nodeId, String uuid, Element message, String itemId)
+	public void addMAMItem(BareJID serviceJid, ObjectId nodeId, String uuid, Element message, Date timestamp, String itemId)
 			throws RepositoryException {
 		try {
 			mamCollection.insertOne(new Document("node_id", nodeId).append("uuid", UUID.fromString(uuid))
-											.append("ts", new Date())
+											.append("ts", timestamp)
 											.append("data", message.toString())
 											.append("item_id", itemId));
 		} catch (MongoException ex) {

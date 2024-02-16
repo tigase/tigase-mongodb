@@ -20,10 +20,7 @@ package tigase.mongodb.http;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.Projections;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.client.model.Updates;
+import com.mongodb.client.model.*;
 import org.bson.Document;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
@@ -31,11 +28,11 @@ import tigase.http.db.Schema;
 import tigase.http.upload.db.FileUploadRepository;
 import tigase.mongodb.MongoDataSource;
 import tigase.xmpp.jid.BareJID;
-import tigase.xmpp.jid.JID;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
@@ -55,14 +52,12 @@ public class MongoFileUploadRepository
 	private MongoCollection<Document> slots;
 
 	@Override
-	public Slot allocateSlot(JID sender, String slotId, String filename, long filesize, String contentType)
+	public Slot allocateSlot(BareJID sender, String slotId, String filename, long filesize, String contentType)
 			throws TigaseDBException {
-		BareJID bareJid = sender.getBareJID();
 		Date date = new Date();
 		try {
 			Document doc = new Document("_id", slotId).append("uploader", sender.toString())
 					.append("domain", sender.getDomain())
-					.append("resource", sender.getResource())
 					.append("filename", filename)
 					.append("filesize", filesize)
 					.append("content_type", contentType)
@@ -73,7 +68,7 @@ public class MongoFileUploadRepository
 		} catch (MongoWriteException ex) {
 			throw new TigaseDBException("Failed to allocate slot for file transfer", ex);
 		}
-		return new Slot(bareJid, slotId, filename, filesize, contentType, date);
+		return new Slot(sender, slotId, filename, filesize, contentType, date);
 	}
 
 	@Override
@@ -119,6 +114,84 @@ public class MongoFileUploadRepository
 			ids.add(doc.getString("_id"));
 		}
 		slots.deleteMany(Filters.in("_id", ids));
+	}
+
+	@Override
+	public long getUsedSpaceForDomain(String domain) throws TigaseDBException {
+		Document document =  slots.aggregate(Arrays.asList(Aggregates.match(Filters.eq("domain", domain)),
+											 Aggregates.group("$domain", Accumulators.sum("used_space", "$filesize")))).first();
+		if (document == null) {
+			return 0;
+		}
+		return document.getLong("used_space");
+	}
+
+	@Override
+	public long getUsedSpaceForUser(BareJID user) throws TigaseDBException {
+		Document document = slots.aggregate(Arrays.asList(Aggregates.match(
+																  Filters.and(Filters.eq("domain", user.getDomain()), Filters.eq("uploader", user.toString()))),
+														  Aggregates.group("$uploader", Accumulators.sum("used_space",
+																									   "$filesize"))))
+				.first();
+		if (document == null) {
+			return 0;
+		}
+		return document.getLong("used_space");
+	}
+
+	@Override
+	public List<Slot> querySlots(BareJID user, String afterId, int limit) throws TigaseDBException {
+		List<Slot> results = new ArrayList<>();
+		int offset = 0;
+		Slot slot = afterId == null ? null : getSlot(user, afterId);
+		if (slot != null) {
+			offset = (int) slots.countDocuments(
+					Filters.and(Filters.eq("uploader", user.toString()), Filters.lt("ts", slot.timestamp)));
+		}
+		for (Document doc : slots.find(Filters.eq("uploader", user.toString()))
+				.sort(Sorts.ascending("ts"))
+				.skip(offset)
+				.limit(limit)) {
+			String slotId = doc.getString("_id");
+			BareJID bareJID = BareJID.bareJIDInstanceNS(doc.getString("uploader"));
+			String filename = doc.getString("filename");
+			long filesize = doc.getLong("filesize");
+			String contentType = doc.getString("content_type");
+			Date ts = doc.getDate("ts");
+			results.add(new Slot(bareJID, slotId, filename, filesize, contentType, ts));
+		}
+		return results;
+	}
+
+	@Override
+	public List<Slot> querySlots(String domain, String afterId, int limit) throws TigaseDBException {
+		List<Slot> results = new ArrayList<>();
+		int offset = 0;
+		if (afterId != null) {
+			Document slot = slots.find(Filters.eq("_id", afterId)).first();
+			if (slot != null) {
+				offset = (int) slots.countDocuments(
+						Filters.and(Filters.eq("domain", domain), Filters.lt("ts", slot.getDate("ts"))));
+			}
+		}
+		for (Document doc : slots.find(Filters.eq("domain", domain))
+				.sort(Sorts.ascending("ts"))
+				.skip(offset)
+				.limit(limit)) {
+			String slotId = doc.getString("_id");
+			BareJID bareJID = BareJID.bareJIDInstanceNS(doc.getString("uploader"));
+			String filename = doc.getString("filename");
+			long filesize = doc.getLong("filesize");
+			String contentType = doc.getString("content_type");
+			Date ts = doc.getDate("ts");
+			results.add(new Slot(bareJID, slotId, filename, filesize, contentType, ts));
+		}
+		return results;
+	}
+
+	@Override
+	public void removeSlot(BareJID user, String slotId) throws TigaseDBException {
+		slots.deleteOne(Filters.and(Filters.eq("_id", slotId), Filters.eq("uploader", user.toString())));
 	}
 
 	@Override

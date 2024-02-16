@@ -134,7 +134,7 @@ public class MongoHistoryProvider
 			byte[] rid = generateId(owner);
 			Document result = historyCollection.find(
 							Filters.and(Filters.eq("room_jid_id", rid), Filters.eq("stable_id", UUID.fromString(stableId))))
-					.projection(Projections.include("msg", "timestamp"))
+					.projection(Projections.include("msg", "timestamp", "sender_jid"))
 					.first();
 			if (result == null) {
 				return null;
@@ -143,6 +143,7 @@ public class MongoHistoryProvider
 			String msgStr = result.getString("msg");
 			Element msg = parseMessage(msgStr);
 			Date timestamp = result.getDate("timestamp");
+			String msgSenderJid = result.getString("sender_jid");
 
 			return new Item() {
 				@Override
@@ -158,6 +159,14 @@ public class MongoHistoryProvider
 				@Override
 				public Date getTimestamp() {
 					return timestamp;
+				}
+
+				@Override
+				public JID getSenderJID() {
+					if (msgSenderJid != null) {
+						return JID.jidInstanceNS(msgSenderJid);
+					}
+					return null;
 				}
 			};
 		} catch (Exception ex) {
@@ -328,6 +337,7 @@ public class MongoHistoryProvider
 				String body = (String) dto.get("body");
 				Date timestamp = (Date) dto.get("timestamp");
 				UUID stableId = (UUID) dto.get("stable_id");
+				String msgSenderJid = dto.getString("sender_jid");
 
 				Element msgEl = createMessageElement(query.getComponentJID().getBareJID(), query.getQuestionerJID(),
 				                                     sender_nickname, msg, body, stableId.toString());
@@ -345,6 +355,14 @@ public class MongoHistoryProvider
 					@Override
 					public Date getTimestamp() {
 						return timestamp;
+					}
+
+					@Override
+					public JID getSenderJID() {
+						if (msgSenderJid != null) {
+							return JID.jidInstanceNS(msgSenderJid);
+						}
+						return null;
 					}
 				};
 				itemHandler.itemFound(query, item);
