@@ -24,7 +24,7 @@ import com.mongodb.client.model.*;
 import org.bson.Document;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
-import tigase.http.db.Schema;
+import tigase.http.Schema;
 import tigase.http.upload.db.FileUploadRepository;
 import tigase.mongodb.MongoDataSource;
 import tigase.xmpp.jid.BareJID;
