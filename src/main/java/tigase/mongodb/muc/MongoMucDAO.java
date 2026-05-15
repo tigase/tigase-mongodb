@@ -25,6 +25,7 @@ import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import tigase.annotations.TigaseDeprecated;
 import tigase.component.exceptions.RepositoryException;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
@@ -54,6 +55,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 20.10.2016.
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.MUC_SCHEMA_ID, name = Schema.MUC_SCHEMA_NAME, external = false)
 public class MongoMucDAO

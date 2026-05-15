@@ -22,6 +22,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
+import tigase.annotations.TigaseDeprecated;
 import tigase.cluster.repo.ClConConfigRepository;
 import tigase.cluster.repo.ClusterRepoConstants;
 import tigase.cluster.repo.ClusterRepoItem;
@@ -39,6 +40,8 @@ import java.util.logging.Logger;
 
 import static tigase.mongodb.Helper.collectionExists;
 
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-cluster", name = "Tigase XMPP Server (Cluster)", external = false)
 public class ClConMongoRepository

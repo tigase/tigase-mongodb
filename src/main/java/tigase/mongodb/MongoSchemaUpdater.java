@@ -17,6 +17,7 @@
  */
 package tigase.mongodb;
 
+import tigase.annotations.TigaseDeprecated;
 import tigase.db.DataSourceAware;
 import tigase.db.util.RepositoryVersionAware;
 import tigase.mongodb.archive.MongoMessageArchiveRepository;
@@ -30,6 +31,8 @@ import java.util.Optional;
 /**
  * Created by andrzej on 07.10.2016.
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 public class MongoSchemaUpdater {
 
 	public static void main(String[] args) throws Exception {

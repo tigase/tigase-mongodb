@@ -67,6 +67,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * @author andrzej
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.MUC_SCHEMA_ID + "-history", name = "Tigase MUC Component (History)", external = false)
 @RepositoryVersionAware.SchemaVersion

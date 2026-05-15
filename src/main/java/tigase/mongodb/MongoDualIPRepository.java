@@ -21,6 +21,7 @@ import com.mongodb.BasicDBObject;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+import tigase.annotations.TigaseDeprecated;
 import tigase.db.Repository;
 import tigase.server.xmppclient.SeeOtherHostDualIP.DualIPRepository;
 import tigase.util.stringprep.TigaseStringprepException;
@@ -37,6 +38,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * @author Wojtek
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 public class MongoDualIPRepository
 		implements DualIPRepository<MongoDataSource> {

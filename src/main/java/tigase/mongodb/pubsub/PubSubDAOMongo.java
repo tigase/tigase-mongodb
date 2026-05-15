@@ -26,6 +26,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 import org.bson.types.ObjectId;
+import tigase.annotations.TigaseDeprecated;
 import tigase.component.exceptions.ComponentException;
 import tigase.component.exceptions.RepositoryException;
 import tigase.db.Repository;
@@ -63,6 +64,8 @@ import static tigase.mongodb.Helper.indexCreateOrReplace;
 /**
  * @author andrzej
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.PUBSUB_SCHEMA_ID, name = Schema.PUBSUB_SCHEMA_NAME, external = false)
 @RepositoryVersionAware.SchemaVersion

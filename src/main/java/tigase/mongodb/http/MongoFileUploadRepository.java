@@ -22,6 +22,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.*;
 import org.bson.Document;
+import tigase.annotations.TigaseDeprecated;
 import tigase.db.Repository;
 import tigase.db.TigaseDBException;
 import tigase.http.Schema;
@@ -41,6 +42,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 14.03.2017.
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.HTTP_UPLOAD_SCHEMA_ID, name = Schema.HTTP_UPLOAD_SCHEMA_NAME, external = false)
 public class MongoFileUploadRepository

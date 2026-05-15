@@ -23,6 +23,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+import tigase.annotations.TigaseDeprecated;
 import tigase.db.DBInitException;
 import tigase.db.DataSource;
 import tigase.db.Repository;
@@ -40,6 +41,8 @@ import static tigase.mongodb.MongoSchemaLoader.SCHEMA_VERSION;
 /**
  * Created by andrzej on 04.10.2016.
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(isDefault = true, supportedUris = {"mongodb:.*"})
 public class MongoDataSource
 		implements DataSource, UnregisterAware {

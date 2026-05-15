@@ -21,6 +21,7 @@ import com.mongodb.BasicDBObject;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+import tigase.annotations.TigaseDeprecated;
 import tigase.component.exceptions.RepositoryException;
 import tigase.db.Repository;
 import tigase.mongodb.MongoDataSource;
@@ -35,6 +36,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * @author Wojciech Kapcia
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 public class CounterDataLoggerMongo
 		implements CounterDataLoggerRepositoryIfc<MongoDataSource> {

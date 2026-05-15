@@ -27,6 +27,7 @@ import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import org.bson.Document;
 import org.bson.types.ObjectId;
+import tigase.annotations.TigaseDeprecated;
 import tigase.db.Repository;
 import tigase.db.Schema;
 import tigase.db.TigaseDBException;
@@ -53,6 +54,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 04.10.2016.
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 @Repository.Meta(supportedUris = {"mongodb:.*"})
 @Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID +
 		"-offline-message-broadcast", name = "Tigase XMPP Server (Offline Messages [broadcast])", external = false)

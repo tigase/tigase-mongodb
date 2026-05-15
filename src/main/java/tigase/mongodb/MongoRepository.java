@@ -28,6 +28,7 @@ import com.mongodb.client.model.*;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
+import tigase.annotations.TigaseDeprecated;
 import tigase.auth.credentials.Credentials;
 import tigase.auth.credentials.entries.PlainCredentialsEntry;
 import tigase.db.*;
@@ -60,6 +61,8 @@ import static tigase.mongodb.Helper.collectionExists;
 @Repository.Meta(supportedUris = {"mongodb:.*"}, isDefault = true)
 @Repository.SchemaId(id = Schema.SERVER_SCHEMA_ID + "-user", name = "Tigase XMPP Server (User)", external = false)
 @RepositoryVersionAware.SchemaVersion
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 public class MongoRepository
 		extends AbstractAuthRepositoryWithCredentials
 		implements UserRepository, DataSourceAware<MongoDataSource>, MongoRepositoryVersionAware {
@@ -605,6 +608,7 @@ public class MongoRepository
 
 	@Override
 	public void setDataSource(MongoDataSource dataSource) {
+		log.warning("MongoDB repository is deprecated and will be removed in future versions");
 		this.dataSource = dataSource;
 		db = dataSource.getDatabase();
 

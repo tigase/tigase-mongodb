@@ -25,6 +25,7 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
+import tigase.annotations.TigaseDeprecated;
 import tigase.db.DBInitException;
 import tigase.db.util.DBSchemaLoader;
 import tigase.db.util.RepositoryVersionAware;
@@ -49,6 +50,8 @@ import static tigase.mongodb.Helper.collectionExists;
 /**
  * Created by andrzej on 05.05.2017.
  */
+@Deprecated
+@TigaseDeprecated(since = "2.5.0", note = "MongoDB support in Tigase is depracated and will be removed in Tigase XMPP Server 9.0.0")
 public class MongoSchemaLoader
 		extends SchemaLoader<MongoSchemaLoader.Parameters> {
 
